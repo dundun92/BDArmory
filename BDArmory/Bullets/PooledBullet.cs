@@ -78,7 +78,7 @@ namespace BDArmory.Bullets
         public float caliber = 1;
         public float bulletVelocity; //muzzle velocity
         public bool explosive = false;
-        public float apBulletMod = 0;
+        public float apBulletMod = 1;
         public float ballisticCoefficient;
         public float flightTimeElapsed;
         public static Shader bulletShader;
@@ -604,9 +604,14 @@ namespace BDArmory.Bullets
         private float CalculatePenetration()
         {
             float penetration = 0;
+			if (apBulletMod <= 0)// sanity check against modders leaving apBulletMod = 0 in bulletdef configs
+			{
+				apBulletMod = 1; //assumes no modification to pen depth
+			}
             if (caliber > 10) //use the "krupp" penetration formula for anything larger than HMGs
             {
-                penetration = (float)(16f * impactVelocity * Math.Sqrt(bulletMass / 1000) / Math.Sqrt(caliber));
+				penetration = (float)((16f * impactVelocity * Math.Sqrt(bulletMass / 1000) / Math.Sqrt(caliber))*apBulletMod);
+				//apBulletMod as multiplier - default is 1 for unmodded penetration, non AP HE rounds might use, say, 0.8-0.6 for reduced penetration, AP/DU penetrators > 1 vals
             }
 
             return penetration;
