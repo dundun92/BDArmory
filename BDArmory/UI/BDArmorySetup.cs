@@ -301,7 +301,7 @@ namespace BDArmory.UI
             WindowRectGps = new Rect(0, 0, WindowRectToolbar.width - 10, 0);
             SetupSettingsSize();
             BDAWindowSettingsField.Load();
-            CheckIfWindowsSettingsAreWithinScreen();
+            //CheckIfWindowsSettingsAreWithinScreen();
 
             WindowRectGps.width = WindowRectToolbar.width - 10;
 
@@ -410,15 +410,15 @@ namespace BDArmory.UI
             BulletInfo.Load();
         }
 
-        private void CheckIfWindowsSettingsAreWithinScreen()
-        {
-            BDGUIUtils.RepositionWindow(ref WindowRectToolbar);
-            BDGUIUtils.RepositionWindow(ref WindowRectSettings);
-            BDGUIUtils.RepositionWindow(ref WindowRectRwr);
-            BDGUIUtils.RepositionWindow(ref WindowRectVesselSwitcher);
-            BDGUIUtils.RepositionWindow(ref WindowRectWingCommander);
-            BDGUIUtils.RepositionWindow(ref WindowRectTargetingCam);
-        }
+        //private void CheckIfWindowsSettingsAreWithinScreen()
+        //{
+            //BDGUIUtils.RepositionWindow(ref WindowRectToolbar);
+            //BDGUIUtils.RepositionWindow(ref WindowRectSettings);
+            //BDGUIUtils.RepositionWindow(ref WindowRectRwr);
+            //BDGUIUtils.RepositionWindow(ref WindowRectVesselSwitcher);
+            //BDGUIUtils.RepositionWindow(ref WindowRectWingCommander);
+            //BDGUIUtils.RepositionWindow(ref WindowRectTargetingCam);
+        //}
 
     void Update()
         {
@@ -1166,7 +1166,7 @@ namespace BDArmory.UI
             toolWindowHeight = Mathf.Lerp(toolWindowHeight, contentTop + (line*entryHeight) + 5, 1);
             WindowRectToolbar.height = toolWindowHeight;
             // = new Rect(toolbarWindowRect.position.x, toolbarWindowRect.position.y, toolWindowWidth, toolWindowHeight);
-            BDGUIUtils.RepositionWindow(ref WindowRectToolbar);
+            //BDGUIUtils.RepositionWindow(ref WindowRectToolbar);
         }
 
         bool validGPSName = true;
@@ -1385,9 +1385,10 @@ namespace BDArmory.UI
             GUI.Label(SLeftRect(line), $"Max Bullet Holes:  ({BDArmorySettings.MAX_NUM_BULLET_DECALS})", leftLabel);
             BDArmorySettings.MAX_NUM_BULLET_DECALS = (int)GUI.HorizontalSlider(SRightRect(line), BDArmorySettings.MAX_NUM_BULLET_DECALS, 1f, 999);
             line++;
-            line++;
+			BDArmorySettings.PAINTBALL = GUI.Toggle(SLeftRect(line), BDArmorySettings.PAINTBALL, "Paintball Mode");
+			line++;
 
-            bool origPm = BDArmorySettings.PEACE_MODE;
+			bool origPm = BDArmorySettings.PEACE_MODE;
             BDArmorySettings.PEACE_MODE = GUI.Toggle(SLeftRect(line), BDArmorySettings.PEACE_MODE, "Peace Mode");
             if (BDArmorySettings.PEACE_MODE && !origPm)
             {
@@ -1509,7 +1510,7 @@ namespace BDArmory.UI
             line += 1.5f;
             settingsHeight = (line*settingsLineHeight);
             WindowRectSettings.height = settingsHeight;
-            BDGUIUtils.RepositionWindow(ref WindowRectSettings);
+            //BDGUIUtils.RepositionWindow(ref WindowRectSettings);
             BDGUIUtils.UseMouseEventInRect(WindowRectSettings);
         }
 

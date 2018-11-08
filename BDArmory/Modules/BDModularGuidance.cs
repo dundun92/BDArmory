@@ -55,7 +55,7 @@ namespace BDArmory.Modules
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Steer Limiter"), UI_FloatRange(minValue = .1f, maxValue = 1f, stepIncrement = .05f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]
         public float MaxSteer = 1;
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Stages Number"), UI_FloatRange(minValue = 1f, maxValue = 9f, stepIncrement = 1f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Stages Number"), UI_FloatRange(minValue = 1f, maxValue = 5f, stepIncrement = 1f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]
         public float StagesNumber = 1;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Stage to Trigger On Proximity"), UI_FloatRange(minValue = 0f, maxValue = 6f, stepIncrement = 1f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]
@@ -71,20 +71,11 @@ namespace BDArmory.Modules
         public bool RollCorrection = false;
 
 
-        [KSPField(isPersistant = true, guiActive = false, guiActiveEditor = true, guiName = "Time Between Stages"),
-         UI_FloatRange(minValue = 0f, maxValue = 5f, stepIncrement = 0.5f, scene = UI_Scene.Editor)]
-        public float timeBetweenStages = 1f;
-
-        [KSPField(isPersistant = true, guiActive = false, guiActiveEditor = true, guiName = "Min Speed before guidance"),
-         UI_FloatRange(minValue = 0f, maxValue = 1000f, stepIncrement = 50f, scene = UI_Scene.Editor)]
-        public float MinSpeedGuidance = 200f;
-
         private Vector3 initialMissileRollPlane;
         private Vector3 initialMissileForward;
 
         private float rollError;
 
-        private bool _minSpeedAchieved = false;
         #endregion
 
         public TransformAxisVectors ForwardTransformAxis { get; set; }
@@ -140,11 +131,7 @@ namespace BDArmory.Modules
                 Fields["BallisticOverShootFactor"].guiActive = GuidanceMode == GuidanceModes.AGMBallistic;
                 Fields["BallisticOverShootFactor"].guiActiveEditor = GuidanceMode == GuidanceModes.AGMBallistic;
             }
-            if (Fields["SoftAscent"] != null)
-            {
-                Fields["SoftAscent"].guiActive = GuidanceMode == GuidanceModes.AGMBallistic;
-                Fields["SoftAscent"].guiActiveEditor = GuidanceMode == GuidanceModes.AGMBallistic;
-            }
+
             Misc.Misc.RefreshAssociatedWindows(part);
         }
         public override void OnFixedUpdate()
@@ -173,25 +160,10 @@ namespace BDArmory.Modules
         {
             if (ShouldExecuteNextStage())
             {
-                if (!nextStageCountdownStart)
-                {
-                    this.nextStageCountdownStart = true;
-                    this.stageCutOfftime = Time.time;
-                }
-                else
-                {
-                    if ((Time.time - stageCutOfftime) >= timeBetweenStages)
-                    {
-                        ExecuteNextStage();
-                        nextStageCountdownStart = false;
-                    }
-                }
+                ExecuteNextStage();
+
             }
         }
-
-        public bool nextStageCountdownStart { get; set; } = false;
-
-        public float stageCutOfftime { get; set; } = 0f;
 
         private void CheckDelayedFired()
         {
@@ -637,39 +609,25 @@ namespace BDArmory.Modules
             debugString.Length = 0;
             if (guidanceActive && MissileReferenceTransform != null && _velocityTransform != null)
             {
-
-                if (vessel.Velocity().magnitude < MinSpeedGuidance)
-                {
-                    if (!_minSpeedAchieved)
-                    {
-                        s.mainThrottle = 1;
-                        return;
-                    }
-                }
-                else
-                {
-                    _minSpeedAchieved = true;
-                }
-
-
                 Vector3 newTargetPosition = new Vector3();
-                switch (GuidanceIndex)
+                if (GuidanceIndex == 1)
                 {
-                    case 1:
-                        newTargetPosition = AAMGuidance();
-                        break;
-                    case 2:
-                        newTargetPosition = AGMGuidance();
-                        break;
-                    case 3:
-                        newTargetPosition = CruiseGuidance();
-                        break;
-                    case 4:
-                        newTargetPosition = BallisticGuidance();
-                        break;
-                }
-                CheckMiss(newTargetPosition);
+                    newTargetPosition = AAMGuidance();
+                    CheckMiss(newTargetPosition);
 
+                }
+                else if (GuidanceIndex == 2)
+                {
+                    newTargetPosition = AGMGuidance();
+                }
+                else if (GuidanceIndex == 3)
+                {
+                    newTargetPosition = CruiseGuidance();
+                }
+                else if (GuidanceIndex == 4)
+                {
+                    newTargetPosition = BallisticGuidance();
+                }
 
                 //Updating aero surfaces
                 if (TimeIndex > dropTime + 0.5f)
@@ -681,7 +639,6 @@ namespace BDArmory.Modules
                     Vector3 localAngVel = vessel.angularVelocity;
                     float steerYaw = SteerMult * targetDirection.x - SteerDamping * -localAngVel.z;
                     float steerPitch = SteerMult * targetDirection.y - SteerDamping * -localAngVel.x;
-
 
                     s.yaw = Mathf.Clamp(steerYaw, -MaxSteer, MaxSteer);
                     s.pitch = Mathf.Clamp(steerPitch, -MaxSteer, MaxSteer);
@@ -1214,7 +1171,7 @@ namespace BDArmory.Modules
             GUILayout.EndVertical();
 
             GUI.DragWindow();
-            BDGUIUtils.RepositionWindow(ref guiWindowRect);
+            //BDGUIUtils.RepositionWindow(ref guiWindowRect);
         }
 
     private static void InitializeStyles()

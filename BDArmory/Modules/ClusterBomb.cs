@@ -121,12 +121,13 @@ namespace BDArmory.Modules
                 Vector3 direction = (sub.Current.transform.position - part.transform.position).normalized;
                 Rigidbody subRB = sub.Current.GetComponent<Rigidbody>();
                 subRB.isKinematic = false;
-                subRB.velocity = part.rb.velocity + Krakensbane.GetFrameVelocityV3f() +
+                subRB.velocity = part.rb.velocity +
                                  (UnityEngine.Random.Range(submunitionMaxSpeed/10, submunitionMaxSpeed)*direction);
 
                 Submunition subScript = sub.Current.AddComponent<Submunition>();
                 subScript.enabled = true;
                 subScript.deployed = true;
+                subScript.sourceVessel = missileLauncher.SourceVessel;
                 subScript.blastForce = missileLauncher.GetTntMass();
                 subScript.blastHeat = missileLauncher.blastHeat;
                 subScript.blastRadius = missileLauncher.GetBlastRadius();
@@ -142,11 +143,12 @@ namespace BDArmory.Modules
                 Vector3 direction = (fairing.Current.transform.position - part.transform.position).normalized;
                 Rigidbody fRB = fairing.Current.GetComponent<Rigidbody>();
                 fRB.isKinematic = false;
-                fRB.velocity = part.rb.velocity + Krakensbane.GetFrameVelocityV3f() + ((submunitionMaxSpeed + 2)*direction);
+                fRB.velocity = part.rb.velocity + ((submunitionMaxSpeed + 2)*direction);
                 fairing.Current.AddComponent<KSPForceApplier>();
                 fairing.Current.GetComponent<KSPForceApplier>().drag = 0.2f;
                 ClusterBombFairing fairingScript = fairing.Current.AddComponent<ClusterBombFairing>();
                 fairingScript.deployed = true;
+                fairingScript.sourceVessel = vessel;
             }
 
             fairing.Dispose();
@@ -175,8 +177,10 @@ namespace BDArmory.Modules
         public float blastHeat;
         public string subExplModelPath;
         public string subExplSoundPath;
+        public Vessel sourceVessel;
         Vector3 currPosition;
         Vector3 prevPosition;
+        Vector3 relativePos;
 
         float startTime;
 
@@ -185,6 +189,7 @@ namespace BDArmory.Modules
         void Start()
         {
             startTime = Time.time;
+            relativePos = transform.position - sourceVessel.transform.position;
             currPosition = transform.position;
             prevPosition = transform.position;
             rb = GetComponent<Rigidbody>();
@@ -201,53 +206,59 @@ namespace BDArmory.Modules
         {
             if (deployed)
             {
-                if (Time.time - startTime > 30)
+                if (deployed)
                 {
-                    Destroy(gameObject);
-                    return;
-                }
-
-                //floating origin and velocity offloading corrections
-                if (!FloatingOrigin.Offset.IsZero() || !Krakensbane.GetFrameVelocity().IsZero())
-                {
-                    transform.position -= FloatingOrigin.OffsetNonKrakensbane;
-                    prevPosition -= FloatingOrigin.OffsetNonKrakensbane;
-                }
-
-                currPosition = transform.position;
-                float dist = (currPosition - prevPosition).magnitude;
-                Ray ray = new Ray(prevPosition, currPosition - prevPosition);
-                RaycastHit hit;
-
-                if (Physics.Raycast(ray, out hit, dist, 9076737))
-                {
-                    Part hitPart = null;
-                    try
+                    if (Time.time - startTime > 30)
                     {
-                        hitPart = hit.collider.gameObject.GetComponentInParent<Part>();                            
-                    }
-                    catch (NullReferenceException)
-                    {
-                        Debug.Log("[BDArmory]:NullReferenceException for Submunition Hit");
+                        Destroy(gameObject);
                         return;
                     }
 
-                    if (hitPart != null || CheckBuildingHit(hit))
+                    //floatingOrigin fix
+                    if (sourceVessel != null &&
+                        ((transform.position - sourceVessel.transform.position) - relativePos).sqrMagnitude > 800 * 800)
                     {
-                        Detonate(hit.point);
+                        transform.position = sourceVessel.transform.position + relativePos +
+                                             (rb.velocity * Time.fixedDeltaTime);
                     }
-                    else if (hitPart == null)
+                    if (sourceVessel != null) relativePos = transform.position - sourceVessel.transform.position;
+                    //
+
+                    currPosition = transform.position;
+                    float dist = (currPosition - prevPosition).magnitude;
+                    Ray ray = new Ray(prevPosition, currPosition - prevPosition);
+                    RaycastHit hit;
+
+                    if (Physics.Raycast(ray, out hit, dist, 9076737))
+                    {
+                        Part hitPart = null;
+                        try
+                        {
+                            hitPart = hit.collider.gameObject.GetComponentInParent<Part>();                            
+                        }
+                        catch (NullReferenceException)
+                        {
+                            Debug.Log("[BDArmory]:NullReferenceException for Submunition Hit");
+                            return;
+                        }
+
+                        if (hitPart?.vessel == sourceVessel) return;
+
+                        if (hitPart != null || CheckBuildingHit(hit))
+                        {
+                            Detonate(hit.point);
+                        }
+                        else if (hitPart == null)
+                        {
+                            Detonate(currPosition);
+                        }
+                        
+                    }
+                    else if (FlightGlobals.getAltitudeAtPos(currPosition) <= 0)
                     {
                         Detonate(currPosition);
                     }
-                        
                 }
-                else if (FlightGlobals.getAltitudeAtPos(currPosition) <= 0)
-                {
-                    Detonate(currPosition);
-                }
-
-                prevPosition = transform.position;
             }
         }
 
@@ -279,8 +290,10 @@ namespace BDArmory.Modules
     {
         public bool deployed;
 
+        public Vessel sourceVessel;
         Vector3 currPosition;
         Vector3 prevPosition;
+        Vector3 relativePos;
         float startTime;
 
         Rigidbody rb;
@@ -290,6 +303,7 @@ namespace BDArmory.Modules
             startTime = Time.time;
             currPosition = transform.position;
             prevPosition = transform.position;
+            relativePos = transform.position - sourceVessel.transform.position;
             rb = GetComponent<Rigidbody>();
         }
 
@@ -297,12 +311,15 @@ namespace BDArmory.Modules
         {
             if (deployed)
             {
-                //floating origin and velocity offloading corrections
-                if (!FloatingOrigin.Offset.IsZero() || !Krakensbane.GetFrameVelocity().IsZero())
+                //floatingOrigin fix
+                if (sourceVessel != null &&
+                    ((transform.position - sourceVessel.transform.position) - relativePos).sqrMagnitude > 800*800)
                 {
-                    transform.position -= FloatingOrigin.OffsetNonKrakensbane;
-                    prevPosition -= FloatingOrigin.OffsetNonKrakensbane;
+                    transform.position = sourceVessel.transform.position + relativePos +
+                                         (rb.velocity*Time.fixedDeltaTime);
                 }
+                if (sourceVessel != null) relativePos = transform.position - sourceVessel.transform.position;
+                //
 
                 currPosition = transform.position;
                 float dist = (currPosition - prevPosition).magnitude;

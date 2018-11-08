@@ -96,7 +96,7 @@ namespace BDArmory.UI
 
         private void Update()
         {
-            if (_ready)
+			if (_ready)
             {
                 if (BDArmorySetup.Instance.showVSGUI != _showGui)
                 {
@@ -109,11 +109,11 @@ namespace BDArmory.UI
                     }
                 }
 
-                if (_showGui)
-                {                    
-                    Hotkeys();
-                }
-            }
+				if (_showGui)
+				{                    
+					Hotkeys();
+				}
+			}
         }
 
         private void Hotkeys()
@@ -297,7 +297,7 @@ namespace BDArmory.UI
             height += _margin;
 
             _windowHeight = height;
-          BDGUIUtils.RepositionWindow(ref BDArmorySetup.WindowRectVesselSwitcher);
+          //BDGUIUtils.RepositionWindow(ref BDArmorySetup.WindowRectVesselSwitcher);
 
     }
 

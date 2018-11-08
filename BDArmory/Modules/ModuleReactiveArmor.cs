@@ -199,7 +199,7 @@ namespace BDArmory.Modules
                     currentTextureName = textureDisplayList[selectedTexture];
                 }
             }
-            if (mapList.Count > selectedTexture) ; // why is this check here? will never happen.
+            if (mapList.Count > selectedTexture); // why is this check here? will never happen.
             else
             {
                 for (int i = 0; i < mapList.Count; i++) ;

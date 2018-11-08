@@ -10,6 +10,7 @@ using BDArmory.Misc;
 using BDArmory.UI;
 using UniLinq;
 using UnityEngine;
+using KSP.UI.Screens;
 
 namespace BDArmory.Modules
 {
@@ -79,7 +80,11 @@ namespace BDArmory.Modules
         public MissileFire weaponManager;
         bool targetInTurretView = true;
 
-        public float yawRange
+		//UI gauges
+		private ProtoStageIconInfo emptyGauge;
+		private ProtoStageIconInfo ammoGauge;
+
+		public float yawRange
         {
             get { return turret ? turret.yawRange : 0; }
         }
@@ -398,7 +403,7 @@ namespace BDArmory.Modules
             {
                 targetPosition = Vector3.zero;
             }
-        }
+		}
 
         public override void OnUpdate()
         {
@@ -439,6 +444,32 @@ namespace BDArmory.Modules
         }
 
         bool mouseAiming;
+
+		void fixedUpdate()
+		{
+			//init UI
+			if (HighLogic.LoadedSceneIsFlight && !vessel.packed)
+			{
+				if (part.stackIcon.StageIcon == null)
+				{
+					part.stackIcon.CreateIcon();
+				}
+				if (vessel.isActiveVessel)
+				{
+					part.stackIcon.ClearInfoBoxes();
+					if (GetRocketResource().amount > 0)
+					{
+						ammoGauge = InitAmmoGauge();
+					}
+					if (GetRocketResource().amount <= 0)
+					{
+						emptyGauge = InitEmptyGauge();
+					}
+					UpdateAmmoMeter();
+					UpdateEmptyAlert();
+				}
+			}
+		}
 
         void Aim()
         {
@@ -571,6 +602,10 @@ namespace BDArmory.Modules
                 rocket.thrust = thrust;
                 rocket.thrustTime = thrustTime;
                 rocket.randomThrustDeviation = thrustDeviation;
+                if (BDArmorySettings.ALLOW_LEGACY_TARGETING && vessel.targetObject != null)
+                {
+                    rocket.targetVessel = vessel.targetObject.GetVessel();
+                }
 
                 rocket.sourceVessel = vessel;
                 rocketObj.SetActive(true);
@@ -760,7 +795,7 @@ namespace BDArmory.Modules
             {
                 if (res.Current == null) continue;
                 if (res.Current.resourceName == rocketType) return res.Current;
-            }
+			}
             res.Dispose();
             return null;
         }
@@ -777,8 +812,78 @@ namespace BDArmory.Modules
             }
         }
 
-        // RMB info in editor
-        public override string GetInfo()
+		public void UpdateAmmoMeter()
+		{
+			if (GetRocketResource().amount > 0)
+			{
+				if (ammoGauge == null)
+				{
+					ammoGauge = InitAmmoGauge();
+				}
+				ammoGauge?.SetValue((float)GetRocketResource().amount, 0, (float)GetRocketResource().maxAmount);    //null check
+			}
+			else if (GetRocketResource().amount <= 0)
+			{
+				part.stackIcon.ClearInfoBoxes();
+				ammoGauge = null;
+				emptyGauge = InitEmptyGauge();
+			}
+			if (BDArmorySettings.INFINITE_AMMO)
+			{
+				part.stackIcon.ClearInfoBoxes();
+				ammoGauge = null;
+			}
+		}
+		public void UpdateEmptyAlert()
+		{
+			if (GetRocketResource().amount <= 0)
+			{
+				if (emptyGauge == null)
+				{
+					emptyGauge = InitEmptyGauge();
+				}
+				emptyGauge?.SetValue(1, 0, 1);    //null check
+			}
+			else if (emptyGauge != null && GetRocketResource().amount > 0)
+			{
+				part.stackIcon.ClearInfoBoxes();
+				emptyGauge = null;
+			}
+		}
+
+		private ProtoStageIconInfo InitAmmoGauge() //thanks DYJ
+		{
+			ProtoStageIconInfo a = part.stackIcon.DisplayInfo();
+
+			// fix nullref if no stackicon exists
+			if (a != null)
+			{
+				a.SetMsgBgColor(XKCDColors.Grey);
+				a.SetMsgTextColor(XKCDColors.Yellow);
+				a.SetMessage("Rockets");
+				a.SetProgressBarBgColor(XKCDColors.DarkGrey);
+				a.SetProgressBarColor(XKCDColors.Yellow);
+			}
+			return a;
+		}
+		private ProtoStageIconInfo InitEmptyGauge() //thanks DYJ
+		{
+			ProtoStageIconInfo g = part.stackIcon.DisplayInfo();
+
+			// fix nullref if no stackicon exists
+			if (g != null)
+			{
+				g.SetMsgBgColor(XKCDColors.AlmostBlack);
+				g.SetMsgTextColor(XKCDColors.Yellow);
+				g.SetMessage("Launcher Empty");
+				g.SetProgressBarBgColor(XKCDColors.Yellow);
+				g.SetProgressBarColor(XKCDColors.Black);
+			}
+			return g;
+		}
+
+		// RMB info in editor
+		public override string GetInfo()
         {
             StringBuilder output = new StringBuilder();
             output.Append(Environment.NewLine);
@@ -799,7 +904,9 @@ namespace BDArmory.Modules
     public class Rocket : MonoBehaviour
     {
         public Transform spawnTransform;
+        public Vessel targetVessel;
         public Vessel sourceVessel;
+        public Vector3 startVelocity;
         public float mass;
         public float thrust;
         public float thrustTime;
@@ -818,6 +925,9 @@ namespace BDArmory.Modules
 
         Vector3 prevPosition;
         Vector3 currPosition;
+
+
+        Vector3 relativePos;
 
         float stayTime = 0.04f;
         float lifeTime = 10;
@@ -877,12 +987,14 @@ namespace BDArmory.Modules
 
         void FixedUpdate()
         {
-            //floating origin and velocity offloading corrections
-            if (!FloatingOrigin.Offset.IsZero() || !Krakensbane.GetFrameVelocity().IsZero())
+			//floatingOrigin fix
+			if (sourceVessel != null &&
+                (transform.position - sourceVessel.transform.position - relativePos).sqrMagnitude > 800*800)
             {
-                transform.position -= FloatingOrigin.OffsetNonKrakensbane;
-                prevPosition -= FloatingOrigin.OffsetNonKrakensbane;
+                transform.position = sourceVessel.transform.position + relativePos + (rb.velocity*Time.fixedDeltaTime);
             }
+            if (sourceVessel != null) relativePos = transform.position - sourceVessel.transform.position;
+            //
 
 
             if (Time.time - startTime < stayTime && transform.parent != null)
@@ -895,9 +1007,10 @@ namespace BDArmory.Modules
             {
                 if (transform.parent != null && parentRB)
                 {
+                    startVelocity = parentRB.velocity;
                     transform.parent = null;
                     rb.isKinematic = false;
-                    rb.velocity = parentRB.velocity + Krakensbane.GetFrameVelocityV3f();
+                    rb.velocity = startVelocity;
                 }
             }
 
@@ -1015,6 +1128,13 @@ namespace BDArmory.Modules
             prevPosition = currPosition;
 
             if (Time.time - startTime > lifeTime)
+            {
+                Detonate(transform.position);
+            }
+
+            //proxy detonation
+            if (targetVessel != null &&
+                (transform.position - targetVessel.transform.position).sqrMagnitude < 0.5f*blastRadius*blastRadius)
             {
                 Detonate(transform.position);
             }
