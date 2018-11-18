@@ -1035,7 +1035,7 @@ namespace BDArmory.Radar
             }
             // End Resizing code.
 
-            //BDGUIUtils.RepositionWindow(ref BDArmorySetup.WindowRectRadar);
+            BDGUIUtils.RepositionWindow(ref BDArmorySetup.WindowRectRadar);
         }
 
         internal static void UpdateRadarScale(float diff)

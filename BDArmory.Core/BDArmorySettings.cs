@@ -6,9 +6,9 @@ namespace BDArmory.Core
         public static string settingsConfigURL = "GameData/BDArmory/settings.cfg";
         
         [BDAPersistantSettingsField] public static bool INSTAKILL = false;
+        [BDAPersistantSettingsField] public static bool BULLET_HITS = true;
 		[BDAPersistantSettingsField] public static bool PAINTBALL = false;
-		[BDAPersistantSettingsField] public static bool BULLET_HITS = true;
-        [BDAPersistantSettingsField] public static bool BULLET_DECALS = true;
+		[BDAPersistantSettingsField] public static bool BULLET_DECALS = true;
         [BDAPersistantSettingsField] public static int MAX_NUM_BULLET_DECALS = 200;
         [BDAPersistantSettingsField] public static float PHYSICS_RANGE = 0;                 //TODO: remove all references to this so it can be deprecated!
         [BDAPersistantSettingsField] public static bool EJECT_SHELLS = true;
@@ -50,6 +50,7 @@ namespace BDArmory.Core
 
         [BDAPersistantSettingsField] public static float RECOIL_FACTOR = 0.75f;
         [BDAPersistantSettingsField] public static float DMG_MULTIPLIER = 100f;
+        [BDAPersistantSettingsField] public static float BALLISTIC_DMG_FACTOR = 1f;
         [BDAPersistantSettingsField] public static float HITPOINT_MULTIPLIER = 2.0f;
         [BDAPersistantSettingsField] public static float EXP_DMG_MOD_BALLISTIC;
         [BDAPersistantSettingsField] public static float EXP_DMG_MOD_MISSILE;

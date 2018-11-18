@@ -61,6 +61,9 @@ namespace BDArmory.UI
 		public static void DrawLineBetweenWorldPositions(Vector3 worldPosA, Vector3 worldPosB, float width, Color color)
 		{
 			Camera cam = GetMainCamera();
+
+		    if (cam == null) return;
+
 			GUI.matrix = Matrix4x4.identity;
 
 			bool aBehind = false;
@@ -145,17 +148,17 @@ namespace BDArmory.UI
 	    return rect;
 	  }
 
-//	  internal static void RepositionWindow(ref Rect windowPosition)
-//	  {
-//	    // This method uses Gui point system.
-//	    if (windowPosition.x < 0) windowPosition.x = 0;
-//	    if (windowPosition.y < 0) windowPosition.y = 0;
-//
-//	    if (windowPosition.xMax > Screen.width)
-//	      windowPosition.x = Screen.width - windowPosition.width;
-//	    if (windowPosition.yMax > Screen.height)
-//	      windowPosition.y = Screen.height - windowPosition.height;
-//	  }
+	  internal static void RepositionWindow(ref Rect windowPosition)
+	  {
+	    // This method uses Gui point system.
+	    if (windowPosition.x < 0) windowPosition.x = 0;
+	    if (windowPosition.y < 0) windowPosition.y = 0;
+
+	    if (windowPosition.xMax > Screen.width)
+	      windowPosition.x = Screen.width - windowPosition.width;
+	    if (windowPosition.yMax > Screen.height)
+	      windowPosition.y = Screen.height - windowPosition.height;
+	  }
 
 	  internal static Rect GuiToScreenRect(Rect rect)
 	  {
