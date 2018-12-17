@@ -149,7 +149,7 @@ namespace BDArmory.Modules
                     while (w.MoveNext())
                     {
                         if (w.Current == null) continue;
-                        if (w.Current.GetShortName() == selectedWeapon.GetShortName())
+						if (w.Current.GetShortName() == selectedWeapon.GetShortName())
                             w.Current.useRippleFire = ro.rippleFire;
                     }
                     w.Dispose();
@@ -2306,17 +2306,16 @@ namespace BDArmory.Modules
                     if (selectedWeapon.GetShortName() != weapCnt.Current.GetShortName()) continue;
                     //guessing that all weapons of the same shortname have the same rpm, as we are storing the last found weapon value...
                     weaponRpm = weapCnt.Current.roundsPerMinute;
-                    rippleWeapons.Add(weapCnt.Current);
-                    counter++;
-                }
+                    counter += weaponRpm;
+				}
                 weapCnt.Dispose();
 
-                gunRippleRpm = weaponRpm * counter; 
-                //number of seconds between each gun firing; will reduce with increasing RPM or number of guns
-                float timeDelayPerGun = 60f / (weaponRpm * counter);
+                gunRippleRpm = counter;
+				//number of seconds between each gun firing; will reduce with increasing RPM or number of guns
+				float timeDelayPerGun = 60f / (weaponRpm * counter);
 
-                // Now lets act on the filtered list.
-                List<ModuleWeapon>.Enumerator weapon = rippleWeapons.GetEnumerator();
+				// Now lets act on the filtered list.
+				List<ModuleWeapon>.Enumerator weapon = rippleWeapons.GetEnumerator();
                 while (weapon.MoveNext())
                 {
                     if (weapon.Current == null) continue;
@@ -3329,8 +3328,19 @@ namespace BDArmory.Modules
                         BDModularGuidance mm = item.Current as BDModularGuidance;
                         candidateTDPS = 5000;
                     }
+					if (candidateClass == WeaponClasses.Rocket)
+					{
 
-                    if (targetWeapon == null)
+						if ((targetWeapon != null) && (targetWeapon.GetWeaponClass() == WeaponClasses.Gun))
+							// dont replace bombs
+							continue;
+						else
+							// TODO: compare bombs which one is better for ground attack
+							// Priority Sequence:
+							// - by blast strength
+							targetWeapon = item.Current;
+					}
+					if (targetWeapon == null)
                     {
                         targetWeapon = item.Current;
                         targetWeaponTDPS = candidateTDPS;
@@ -3936,8 +3946,8 @@ namespace BDArmory.Modules
                 while (weapon.MoveNext())
                 {
                     if (weapon.Current == null) continue;
-                    if (weapon.Current.part.partInfo.title != selectedWeapon.GetPart().partInfo.title) continue;
-                    weapon.Current.EnableWeapon();
+					if (weapon.Current.GetShortName() != selectedWeapon.GetShortName()) continue;
+					weapon.Current.EnableWeapon();
                     weapon.Current.aiControlled = true;
                     if (weapon.Current.yawRange >= 5 && (weapon.Current.maxPitch - weapon.Current.minPitch) >= 5)
                         weapon.Current.maxAutoFireCosAngle = 1;
@@ -3962,8 +3972,8 @@ namespace BDArmory.Modules
                 while (weapon.MoveNext())
                 {
                     if (weapon.Current == null) continue;
-                    if (weapon.Current.part.partInfo.title != selectedWeapon.GetPart().partInfo.title) continue;
-                    weapon.Current.autoFire = false;
+					if (weapon.Current.GetShortName() != selectedWeapon.GetShortName()) continue;
+					weapon.Current.autoFire = false;
                     weapon.Current.legacyTargetVessel = null;
                 }
                 weapon.Dispose();
@@ -4272,8 +4282,8 @@ namespace BDArmory.Modules
                 while (weapon.MoveNext())
                 {
                     if (weapon.Current == null) continue;
-                    if (weapon.Current.part.partInfo.title != selectedWeapon.GetPart().partInfo.title) continue;
-                    weapon.Current.legacyTargetVessel = guardTarget;
+					if (weapon.Current.GetShortName() != selectedWeapon.GetShortName()) continue;
+					weapon.Current.legacyTargetVessel = guardTarget;
                     weapon.Current.autoFireTimer = Time.time;
                     //weapon.Current.autoFireLength = 3 * targetScanInterval / 4;
                     weapon.Current.autoFireLength = (fireBurstLength < 0.5) ? targetScanInterval / 2 : fireBurstLength;
@@ -4393,8 +4403,8 @@ namespace BDArmory.Modules
                 while (weapon.MoveNext())
                 {
                     if (weapon.Current == null) continue;
-                    if (weapon.Current.part.partInfo.title != selectedWeapon.GetPart().partInfo.title) continue;
-                    float gimbalTolerance = vessel.LandedOrSplashed ? 0 : 15;
+					if (weapon.Current.GetShortName() != selectedWeapon.GetShortName()) continue;
+					float gimbalTolerance = vessel.LandedOrSplashed ? 0 : 15;
                     if (((AI != null && AI.pilotEnabled && AI.CanEngage()) || (TargetInTurretRange(weapon.Current.turret, gimbalTolerance))) && weapon.Current.maxEffectiveDistance >= finalDistance)
                     {
                         if (weapon.Current.isOverheated)
@@ -4516,8 +4526,8 @@ namespace BDArmory.Modules
             while (weapon.MoveNext())
             {
                 if (weapon.Current == null) continue;
-                if (selectedWeapon == null || weapon.Current.part.partInfo.title != selectedWeapon.GetPart().partInfo.title)
-                {
+				if (selectedWeapon == null || weapon.Current.GetShortName() != selectedWeapon.GetShortName())
+				{
                     weapon.Current.DisableWeapon();
                 }
                 else

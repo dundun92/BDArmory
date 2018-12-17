@@ -125,8 +125,15 @@ namespace BDArmory.Modules
             return string.Empty;
         }
 
+		[KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Proximity Detonation"),
+ UI_Toggle(disabledText = "false", enabledText = "true")]
+		public bool proximityDetonation = true;
 
-        [KSPAction("Fire")]
+		[KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Proximity Range"),
+ UI_FloatRange(minValue = 1, maxValue = 50, stepIncrement = 5f, scene = UI_Scene.All)]
+		public float detonationRange = 5f;
+
+		[KSPAction("Fire")]
         public void AGFire(KSPActionParam param)
         {
             FireRocket();
@@ -571,6 +578,8 @@ namespace BDArmory.Modules
                 rocket.thrust = thrust;
                 rocket.thrustTime = thrustTime;
                 rocket.randomThrustDeviation = thrustDeviation;
+				rocket.proximityDetonation = proximityDetonation;
+				rocket.detonationRange = detonationRange;
 
                 rocket.sourceVessel = vessel;
                 rocketObj.SetActive(true);
@@ -809,7 +818,11 @@ namespace BDArmory.Modules
         public string explModelPath;
         public string explSoundPath;
 
-        public float randomThrustDeviation = 0.05f;
+		public bool proximityDetonation = false;
+		public float detonationRange = 5f;
+		Vector3 startPosition;
+
+		public float randomThrustDeviation = 0.05f;
 
         public Rigidbody parentRB;
 
@@ -873,153 +886,158 @@ namespace BDArmory.Modules
             randThrustSeed = UnityEngine.Random.Range(0f, 100f);
 
             SetupAudio();
-        }
 
-        void FixedUpdate()
-        {
-            //floating origin and velocity offloading corrections
-            if (!FloatingOrigin.Offset.IsZero() || !Krakensbane.GetFrameVelocity().IsZero())
-            {
-                transform.position -= FloatingOrigin.OffsetNonKrakensbane;
-                prevPosition -= FloatingOrigin.OffsetNonKrakensbane;
-            }
+			startPosition = transform.position;
+		}
 
+		void FixedUpdate()
+		{
+			//floating origin and velocity offloading corrections
+			if (!FloatingOrigin.Offset.IsZero() || !Krakensbane.GetFrameVelocity().IsZero())
+			{
+				transform.position -= FloatingOrigin.OffsetNonKrakensbane;
+				prevPosition -= FloatingOrigin.OffsetNonKrakensbane;
+			}
+			float distanceFromStart = Vector3.Distance(transform.position, startPosition);
 
-            if (Time.time - startTime < stayTime && transform.parent != null)
-            {
-                transform.rotation = transform.parent.rotation;
-                transform.position = spawnTransform.position;
-                //+(transform.parent.rigidbody.velocity*Time.fixedDeltaTime);
-            }
-            else
-            {
-                if (transform.parent != null && parentRB)
-                {
-                    transform.parent = null;
-                    rb.isKinematic = false;
-                    rb.velocity = parentRB.velocity + Krakensbane.GetFrameVelocityV3f();
-                }
-            }
+			if (Time.time - startTime < stayTime && transform.parent != null)
+			{
+				transform.rotation = transform.parent.rotation;
+				transform.position = spawnTransform.position;
+				//+(transform.parent.rigidbody.velocity*Time.fixedDeltaTime);
+			}
+			else
+			{
+				if (transform.parent != null && parentRB)
+				{
+					transform.parent = null;
+					rb.isKinematic = false;
+					rb.velocity = parentRB.velocity + Krakensbane.GetFrameVelocityV3f();
+				}
+			}
 
-            if (rb && !rb.isKinematic)
-            {
-                //physics
-                if (FlightGlobals.RefFrameIsRotating)
-                {
-                    rb.velocity += FlightGlobals.getGeeForceAtPosition(transform.position)*Time.fixedDeltaTime;
-                }
+			if (rb && !rb.isKinematic)
+			{
+				//physics
+				if (FlightGlobals.RefFrameIsRotating)
+				{
+					rb.velocity += FlightGlobals.getGeeForceAtPosition(transform.position) * Time.fixedDeltaTime;
+				}
 
-                //guidance and attitude stabilisation scales to atmospheric density.
-                float atmosMultiplier =
-                    Mathf.Clamp01(2.5f*
-                                  (float)
-                                  FlightGlobals.getAtmDensity(FlightGlobals.getStaticPressure(transform.position),
-                                      FlightGlobals.getExternalTemperature(), FlightGlobals.currentMainBody));
+				//guidance and attitude stabilisation scales to atmospheric density.
+				float atmosMultiplier =
+					Mathf.Clamp01(2.5f *
+								  (float)
+								  FlightGlobals.getAtmDensity(FlightGlobals.getStaticPressure(transform.position),
+									  FlightGlobals.getExternalTemperature(), FlightGlobals.currentMainBody));
 
-                //model transform. always points prograde
-                transform.rotation = Quaternion.RotateTowards(transform.rotation,
-                    Quaternion.LookRotation(rb.velocity + Krakensbane.GetFrameVelocity(), transform.up),
-                    atmosMultiplier*(0.5f*(Time.time - startTime))*50*Time.fixedDeltaTime);
-
-
-                if (Time.time - startTime < thrustTime && Time.time - startTime > stayTime)
-                {
-                    float random = randomThrustDeviation*(1 - (Mathf.PerlinNoise(4*Time.time, randThrustSeed)*2));
-                    float random2 = randomThrustDeviation*(1 - (Mathf.PerlinNoise(randThrustSeed, 4*Time.time)*2));
-                    rb.AddRelativeForce(new Vector3(random, random2, thrust));
-                }
-            }
+				//model transform. always points prograde
+				transform.rotation = Quaternion.RotateTowards(transform.rotation,
+					Quaternion.LookRotation(rb.velocity + Krakensbane.GetFrameVelocity(), transform.up),
+					atmosMultiplier * (0.5f * (Time.time - startTime)) * 50 * Time.fixedDeltaTime);
 
 
-            if (Time.time - startTime > thrustTime)
-            {
-                //isThrusting = false;
-                IEnumerator<KSPParticleEmitter> pEmitter = pEmitters.AsEnumerable().GetEnumerator();
-                while (pEmitter.MoveNext())
-                {
-                    if (pEmitter.Current == null) continue;
-                    if (pEmitter.Current.useWorldSpace)
-                    {
-                        pEmitter.Current.minSize = Mathf.MoveTowards(pEmitter.Current.minSize, 0.1f, 0.05f);
-                        pEmitter.Current.maxSize = Mathf.MoveTowards(pEmitter.Current.maxSize, 0.2f, 0.05f);
-                    }
-                    else
-                    {
-                        pEmitter.Current.minSize = Mathf.MoveTowards(pEmitter.Current.minSize, 0, 0.1f);
-                        pEmitter.Current.maxSize = Mathf.MoveTowards(pEmitter.Current.maxSize, 0, 0.1f);
-                        if (pEmitter.Current.maxSize == 0)
-                        {
-                            pEmitter.Current.emit = false;
-                        }
-                    }
-                }
-                pEmitter.Dispose();
-            }
-
-            if (Time.time - startTime > 0.1f + stayTime)
-            {
-                currPosition = transform.position;
-                float dist = (currPosition - prevPosition).magnitude;
-                Ray ray = new Ray(prevPosition, currPosition - prevPosition);
-                RaycastHit hit;
-                KerbalEVA hitEVA = null;
-                //if (Physics.Raycast(ray, out hit, dist, 2228224))
-                //{
-                //    try
-                //    {
-                //        hitEVA = hit.collider.gameObject.GetComponentUpwards<KerbalEVA>();
-                //        if (hitEVA != null)
-                //            Debug.Log("[BDArmory]:Hit on kerbal confirmed!");
-                //    }
-                //    catch (NullReferenceException)
-                //    {
-                //        Debug.Log("[BDArmory]:Whoops ran amok of the exception handler");
-                //    }
-
-                //    if (hitEVA && hitEVA.part.vessel != sourceVessel)
-                //    {
-                //        Detonate(hit.point);
-                //    }
-                //}
-
-                if (!hitEVA)
-                {
-                    if (Physics.Raycast(ray, out hit, dist, 9076737))
-                    {
-                        Part hitPart = null;
-                        try
-                        {
-                            KerbalEVA eva = hit.collider.gameObject.GetComponentUpwards<KerbalEVA>();
-                            hitPart = eva ? eva.part : hit.collider.gameObject.GetComponentInParent<Part>();
-                        }
-                        catch (NullReferenceException)
-                        {
-                        }
+				if (Time.time - startTime < thrustTime && Time.time - startTime > stayTime)
+				{
+					float random = randomThrustDeviation * (1 - (Mathf.PerlinNoise(4 * Time.time, randThrustSeed) * 2));
+					float random2 = randomThrustDeviation * (1 - (Mathf.PerlinNoise(randThrustSeed, 4 * Time.time) * 2));
+					rb.AddRelativeForce(new Vector3(random, random2, thrust));
+				}
+			}
 
 
-                        if (hitPart == null || (hitPart != null && hitPart.vessel != sourceVessel))
-                        {
-                            Detonate(hit.point);
-                        }
-                    }
-                    else if (FlightGlobals.getAltitudeAtPos(transform.position) < 0)
-                    {
-                        Detonate(transform.position);
-                    }
-                }
-            }
-            else if (FlightGlobals.getAltitudeAtPos(currPosition) <= 0)
-            {
-                Detonate(currPosition);
-            }
-            prevPosition = currPosition;
+			if (Time.time - startTime > thrustTime)
+			{
+				//isThrusting = false;
+				IEnumerator<KSPParticleEmitter> pEmitter = pEmitters.AsEnumerable().GetEnumerator();
+				while (pEmitter.MoveNext())
+				{
+					if (pEmitter.Current == null) continue;
+					if (pEmitter.Current.useWorldSpace)
+					{
+						pEmitter.Current.minSize = Mathf.MoveTowards(pEmitter.Current.minSize, 0.1f, 0.05f);
+						pEmitter.Current.maxSize = Mathf.MoveTowards(pEmitter.Current.maxSize, 0.2f, 0.05f);
+					}
+					else
+					{
+						pEmitter.Current.minSize = Mathf.MoveTowards(pEmitter.Current.minSize, 0, 0.1f);
+						pEmitter.Current.maxSize = Mathf.MoveTowards(pEmitter.Current.maxSize, 0, 0.1f);
+						if (pEmitter.Current.maxSize == 0)
+						{
+							pEmitter.Current.emit = false;
+						}
+					}
+				}
+				pEmitter.Dispose();
+			}
 
-            if (Time.time - startTime > lifeTime)
-            {
-                Detonate(transform.position);
-            }
-        }
+			if (Time.time - startTime > 0.1f + stayTime)
+			{
+				currPosition = transform.position;
+				float dist = (currPosition - prevPosition).magnitude;
+				Ray ray = new Ray(prevPosition, currPosition - prevPosition);
+				RaycastHit hit;
+				KerbalEVA hitEVA = null;
+				//if (Physics.Raycast(ray, out hit, dist, 2228224))
+				//{
+				//    try
+				//    {
+				//        hitEVA = hit.collider.gameObject.GetComponentUpwards<KerbalEVA>();
+				//        if (hitEVA != null)
+				//            Debug.Log("[BDArmory]:Hit on kerbal confirmed!");
+				//    }
+				//    catch (NullReferenceException)
+				//    {
+				//        Debug.Log("[BDArmory]:Whoops ran amok of the exception handler");
+				//    }
 
+				//    if (hitEVA && hitEVA.part.vessel != sourceVessel)
+				//    {
+				//        Detonate(hit.point);
+				//    }
+				//}
+
+				if (!hitEVA)
+				{
+					if (Physics.Raycast(ray, out hit, dist, 9076737))
+					{
+						Part hitPart = null;
+						try
+						{
+							KerbalEVA eva = hit.collider.gameObject.GetComponentUpwards<KerbalEVA>();
+							hitPart = eva ? eva.part : hit.collider.gameObject.GetComponentInParent<Part>();
+						}
+						catch (NullReferenceException)
+						{
+						}
+
+
+						if (hitPart == null || (hitPart != null && hitPart.vessel != sourceVessel))
+						{
+							Detonate(hit.point);
+						}
+					}
+					else if (FlightGlobals.getAltitudeAtPos(transform.position) < 0)
+					{
+						Detonate(transform.position);
+					}
+				}
+			}
+			else if (FlightGlobals.getAltitudeAtPos(currPosition) <= 0)
+			{
+				Detonate(currPosition);
+			}
+			prevPosition = currPosition;
+
+			if (Time.time - startTime > lifeTime)
+			{
+				Detonate(transform.position);
+			}
+			if (ProximityAirDetonation(distanceFromStart))
+			{
+				Detonate(currPosition);
+			}
+		}
         void Update()
         {
             if (HighLogic.LoadedSceneIsFlight)
@@ -1040,8 +1058,40 @@ namespace BDArmory.Modules
                 }
             }
         }
+		private bool ProximityAirDetonation(float distanceFromStart)
+		{
+			bool fuze = false;
 
-        void Detonate(Vector3 pos)
+			if (distanceFromStart <= 500f) return false;
+
+			if (proximityDetonation)
+			{
+				using (var hitsEnu = Physics.OverlapSphere(transform.position, detonationRange, 557057).AsEnumerable().GetEnumerator())
+				{
+					while (hitsEnu.MoveNext())
+					{
+						if (hitsEnu.Current == null) continue;
+
+						try
+						{
+							Part partHit = hitsEnu.Current.GetComponentInParent<Part>();
+							if (partHit?.vessel == sourceVessel) continue;
+
+							if (BDArmorySettings.DRAW_DEBUG_LABELS)
+								Debug.Log("[BDArmory]: Rocket proximity sphere hit | Distance overlap = " + detonationRange + "| Part name = " + partHit.name);
+
+							return fuze = true;
+						}
+						catch
+						{
+							// ignored
+						}
+					}
+				}
+			}
+			return fuze;
+		}
+		void Detonate(Vector3 pos)
         {
             BDArmorySetup.numberOfParticleEmitters--;
 

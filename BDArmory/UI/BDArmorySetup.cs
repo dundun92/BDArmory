@@ -280,9 +280,31 @@ namespace BDArmory.UI
             get { return si ? si : si = GameDatabase.Instance.GetTexture(textureDir + "settingsIcon", false); }
         }
 
-        #endregion 
+		private Texture2D tat;
 
-        public static bool GameIsPaused
+		public Texture2D teamATexture
+		{
+			get { return tat ? tat : tat = GameDatabase.Instance.GetTexture(textureDir + "teamA", false); }
+		}
+
+		private Texture2D tbt;
+
+		public Texture2D teamBTexture
+		{
+			get { return tbt ? tbt : tbt = GameDatabase.Instance.GetTexture(textureDir + "teamB", false); }
+		}
+
+		private Texture2D dit;
+
+		public Texture2D debrisIconTexture
+		{
+			get { return dit ? dit : dit = GameDatabase.Instance.GetTexture(textureDir + "debrisIcon", false); }
+		}
+
+
+		#endregion
+
+		public static bool GameIsPaused
         {
             get { return PauseMenu.isOpen || Time.timeScale == 0; }
         }
@@ -412,12 +434,15 @@ namespace BDArmory.UI
 
         private void CheckIfWindowsSettingsAreWithinScreen()
         {
-            BDGUIUtils.RepositionWindow(ref WindowRectToolbar);
-            BDGUIUtils.RepositionWindow(ref WindowRectSettings);
-            BDGUIUtils.RepositionWindow(ref WindowRectRwr);
-            BDGUIUtils.RepositionWindow(ref WindowRectVesselSwitcher);
-            BDGUIUtils.RepositionWindow(ref WindowRectWingCommander);
-            BDGUIUtils.RepositionWindow(ref WindowRectTargetingCam);
+			if (BDArmorySettings.STRICT_WINDOW_BOUNDARIES)
+			{
+				BDGUIUtils.RepositionWindow(ref WindowRectToolbar);
+				BDGUIUtils.RepositionWindow(ref WindowRectSettings);
+				BDGUIUtils.RepositionWindow(ref WindowRectRwr);
+				BDGUIUtils.RepositionWindow(ref WindowRectVesselSwitcher);
+				BDGUIUtils.RepositionWindow(ref WindowRectWingCommander);
+				BDGUIUtils.RepositionWindow(ref WindowRectTargetingCam);
+			}
         }
 
     void Update()
@@ -1165,8 +1190,11 @@ namespace BDArmory.UI
 
             toolWindowHeight = Mathf.Lerp(toolWindowHeight, contentTop + (line*entryHeight) + 5, 1);
             WindowRectToolbar.height = toolWindowHeight;
-            // = new Rect(toolbarWindowRect.position.x, toolbarWindowRect.position.y, toolWindowWidth, toolWindowHeight);
-            BDGUIUtils.RepositionWindow(ref WindowRectToolbar);
+			// = new Rect(toolbarWindowRect.position.x, toolbarWindowRect.position.y, toolWindowWidth, toolWindowHeight);
+			if (BDArmorySettings.STRICT_WINDOW_BOUNDARIES)
+			{
+				BDGUIUtils.RepositionWindow(ref WindowRectToolbar);
+			}
         }
 
         bool validGPSName = true;
@@ -1385,12 +1413,13 @@ namespace BDArmory.UI
             GUI.Label(SLeftRect(line), $"Max Bullet Holes:  ({BDArmorySettings.MAX_NUM_BULLET_DECALS})", leftLabel);
             BDArmorySettings.MAX_NUM_BULLET_DECALS = (int)GUI.HorizontalSlider(SRightRect(line), BDArmorySettings.MAX_NUM_BULLET_DECALS, 1f, 999);
             line++;
-            line++;
 			BDArmorySettings.PAINTBALL = GUI.Toggle(SLeftRect(line), BDArmorySettings.PAINTBALL, "Paintball Mode");
+			BDArmorySettings.DRAW_TEAM_ICONS = GUI.Toggle(SRightRect(line), BDArmorySettings.DRAW_TEAM_ICONS, "Team Icons");
 			line++;
 			bool origPm = BDArmorySettings.PEACE_MODE;
             BDArmorySettings.PEACE_MODE = GUI.Toggle(SLeftRect(line), BDArmorySettings.PEACE_MODE, "Peace Mode");
-            if (BDArmorySettings.PEACE_MODE && !origPm)
+			BDArmorySettings.DRAW_TEAM_NAMES = GUI.Toggle(SRightRect(line), BDArmorySettings.DRAW_TEAM_NAMES, "Team Icon Name Tags");
+			if (BDArmorySettings.PEACE_MODE && !origPm)
             {
                 BDATargetManager.ClearDatabase();
                 if (OnPeaceEnabled != null)
@@ -1399,7 +1428,8 @@ namespace BDArmory.UI
                 }
             }
             line++;
-            line++;
+			BDArmorySettings.STRICT_WINDOW_BOUNDARIES = GUI.Toggle(SRightRect(line), BDArmorySettings.STRICT_WINDOW_BOUNDARIES, "Strict Window Boundaries");
+			line++;
 
 
             GUI.Label(SLeftRect(line), "RWR Window Scale: " + (BDArmorySettings.RWR_WINDOW_SCALE * 100).ToString("0") + "%", leftLabel);
@@ -1509,8 +1539,11 @@ namespace BDArmory.UI
 
             line += 1.5f;
             settingsHeight = (line*settingsLineHeight);
-            WindowRectSettings.height = settingsHeight;
-            BDGUIUtils.RepositionWindow(ref WindowRectSettings);
+			WindowRectSettings.height = settingsHeight;
+			if (BDArmorySettings.STRICT_WINDOW_BOUNDARIES)
+			{
+				BDGUIUtils.RepositionWindow(ref WindowRectSettings);
+			}
             BDGUIUtils.UseMouseEventInRect(WindowRectSettings);
         }
 

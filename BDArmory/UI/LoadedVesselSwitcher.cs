@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using BDArmory.Modules;
+using BDArmory.Core;
 using UnityEngine;
 
 namespace BDArmory.UI
@@ -296,9 +297,11 @@ namespace BDArmory.UI
             height += vesselLineB * (_buttonHeight + _buttonGap);
             height += _margin;
 
-            _windowHeight = height;
-          BDGUIUtils.RepositionWindow(ref BDArmorySetup.WindowRectVesselSwitcher);
-
+			_windowHeight = height;
+			if (BDArmorySettings.STRICT_WINDOW_BOUNDARIES)
+			{
+				BDGUIUtils.RepositionWindow(ref BDArmorySetup.WindowRectVesselSwitcher);
+			}
     }
 
     private string UpdateVesselStatus(MissileFire wm, GUIStyle vButtonStyle)

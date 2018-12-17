@@ -16,7 +16,9 @@ namespace BDArmory.Core
         [BDAPersistantSettingsField] public static bool INFINITE_AMMO = false;
         [BDAPersistantSettingsField] public static bool DRAW_DEBUG_LINES = false;
         [BDAPersistantSettingsField] public static bool DRAW_DEBUG_LABELS = false;
-        [BDAPersistantSettingsField] public static bool DRAW_AIMERS = true;
+		[BDAPersistantSettingsField] public static bool DRAW_TEAM_ICONS = false;
+		[BDAPersistantSettingsField] public static bool DRAW_TEAM_NAMES = false;
+		[BDAPersistantSettingsField] public static bool DRAW_AIMERS = true;
         [BDAPersistantSettingsField] public static bool AIM_ASSIST = true;
         [BDAPersistantSettingsField] public static bool REMOTE_SHOOTING = false;
         [BDAPersistantSettingsField] public static bool BOMB_CLEARANCE_CHECK = true;
@@ -35,7 +37,8 @@ namespace BDArmory.Core
         [BDAPersistantSettingsField] public static float TARGET_WINDOW_SCALE_MIN = 0.50f;
         [BDAPersistantSettingsField] public static float TARGET_WINDOW_SCALE = 1f;
         [BDAPersistantSettingsField] public static float TARGET_WINDOW_SCALE_MAX = 2f;
-        [BDAPersistantSettingsField] public static float BDARMORY_UI_VOLUME = 0.35f;
+		[BDAPersistantSettingsField] public static bool STRICT_WINDOW_BOUNDARIES = false;
+		[BDAPersistantSettingsField] public static float BDARMORY_UI_VOLUME = 0.35f;
         [BDAPersistantSettingsField] public static float BDARMORY_WEAPONS_VOLUME = 0.32f;
         [BDAPersistantSettingsField] public static float MAX_GUARD_VISUAL_RANGE = 40000f;
         [BDAPersistantSettingsField] public static float MAX_ACTIVE_RADAR_RANGE = 40000f;        //NOTE: used ONLY for display range of radar windows! Actual radar range provided by part configs!
