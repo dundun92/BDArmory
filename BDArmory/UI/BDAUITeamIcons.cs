@@ -14,6 +14,7 @@ namespace BDArmory.UI
 
 		public BDAUITeamIcons Instance;
 		private float updateList = 0;
+		public MissileBase MissileBaseModule;
 
 		void Awake()
 		{
@@ -114,6 +115,11 @@ namespace BDArmory.UI
 				tBStyle.fontSize = 10;
 				tBStyle.normal.textColor = XKCDColors.StrongBlue;
 
+				GUIStyle mwStyle = new GUIStyle();
+				mwStyle.fontStyle = FontStyle.Normal;
+				mwStyle.fontSize = 10;
+				mwStyle.normal.textColor = XKCDColors.ElectricLime;
+
 				{
 					float size = 45;
 					List<MissileFire>.Enumerator wma = _teamA.GetEnumerator();
@@ -209,14 +215,40 @@ namespace BDArmory.UI
 					while (v.MoveNext())
 					{
 						if (v.Current == null) continue;
-						if (v.Current.vesselType != VesselType.Debris && !v.Current.isActiveVessel) continue;
+						if (!v.Current.loaded) continue;
+						if (v.Current.IsControllable && v.Current.isCommandable && !v.Current.isActiveVessel) continue;
 						{
 							Vector3 sPos = FlightGlobals.ActiveVessel.vesselTransform.position;
 							Vector3 tPos = v.Current.vesselTransform.position;
 							Vector3 Dist = (tPos - sPos);
+							Vector2 guiPos;
+							string UIdist;
+							string UoM;
+							if ((Dist.magnitude / 1000) >= 1)
+							{
+								UoM = "km";
+								UIdist = (Dist.magnitude / 1000).ToString("0.00");
+							}
+							else
+							{
+								UoM = "m";
+								UIdist = Dist.magnitude.ToString("0.0");
+							}
 							if (Dist.magnitude > 100)
 							{
-								BDGUIUtils.DrawTextureOnWorldPos(v.Current.CoM, BDArmorySetup.Instance.debrisIconTexture, new Vector2(20, 20), 0);
+								if (v.Current.vesselType == VesselType.Probe && !v.Current.FindPartModuleImplementing<ModuleCommand>())
+								{
+									BDGUIUtils.DrawTextureOnWorldPos(v.Current.CoM, BDArmorySetup.Instance.greenDiamondTexture, new Vector2(15, 15), 0);
+									if (BDGUIUtils.WorldToGUIPos(v.Current.vesselTransform.position, out guiPos))
+									{
+										Rect distRect = new Rect(guiPos.x, (guiPos.y + 20), 100, 32);
+										GUI.Label(distRect, UIdist + UoM, mwStyle);
+									}
+								}
+								else
+								{
+									BDGUIUtils.DrawTextureOnWorldPos(v.Current.CoM, BDArmorySetup.Instance.debrisIconTexture, new Vector2(20, 20), 0);
+								}
 							}
 						}
 					}
