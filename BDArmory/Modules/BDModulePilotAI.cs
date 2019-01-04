@@ -78,7 +78,6 @@ namespace BDArmory.Modules
 			UI_FloatRange(minValue = 0.01f, maxValue = 1f, stepIncrement = 0.01f, scene = UI_Scene.All)]
 		public float steerKiAdjust = 0.05f;
 
-
 		[KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Steer Limiter"),
 			UI_FloatRange(minValue = .1f, maxValue = 1f, stepIncrement = .05f, scene = UI_Scene.All)]
 		public float maxSteer = 1;
@@ -144,8 +143,8 @@ namespace BDArmory.Modules
 
 		[KSPEvent(guiActive = true, guiActiveEditor = true, guiName = "Enable Advanced Settings", active = true, advancedTweakable = true)]
 		public void ToggleAdvancedSettings()
-		{
 
+		{
 			advancedSettings = !advancedSettings;
 
 			if (advancedSettings == false)
@@ -156,7 +155,10 @@ namespace BDArmory.Modules
 			{
 				Events["ToggleAdvancedSettings"].guiName = "Disable Advanced Settings";
 			}
-
+			UpdateUI();
+		}
+		void UpdateUI()
+		{
 			Fields["Reckless"].guiActive = advancedSettings;
 			Fields["Reckless"].guiActiveEditor = advancedSettings;
 			Fields["ExtendDist"].guiActive = advancedSettings;
@@ -268,7 +270,7 @@ namespace BDArmory.Modules
 		protected override void Start()
 		{
 			base.Start();
-
+			UpdateUI();
 			if (HighLogic.LoadedSceneIsFlight)
 			{
 				maxAllowedCosAoA = (float)Math.Cos(maxAllowedAoA * Math.PI / 180.0);
@@ -1056,15 +1058,19 @@ namespace BDArmory.Modules
 				}
 				else
 					weaponManager.ForceWideViewScan();
-				float extendDistance = ExtendDist;
-				/*
-				float extendDistance = Mathf.Clamp(weaponManager.guardRange - 1800, 2500, 4000);
-
-				if (targetVessel != null && !targetVessel.LandedOrSplashed)      //this is just asking for trouble at 800m
+				float extendDistance;
+				if (advancedSettings)
+				{
+					extendDistance = ExtendDist;
+				}
+				else
+				{
+					extendDistance = Mathf.Clamp(weaponManager.guardRange - 1800, 2500, 4000);
+				}
+				if ((targetVessel != null && !targetVessel.LandedOrSplashed) && advancedSettings)  //this is just asking for trouble at 800m
 				{
 						extendDistance = 1600;
 				}
-				*/
 				if (weaponManager.CurrentMissile && weaponManager.CurrentMissile.GetWeaponClass() == WeaponClasses.Bomb)
 				{
 					extendDistance = 4500;
