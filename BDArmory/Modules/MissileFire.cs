@@ -2312,7 +2312,7 @@ namespace BDArmory.Modules
 
                 gunRippleRpm = counter;
 				//number of seconds between each gun firing; will reduce with increasing RPM or number of guns
-				float timeDelayPerGun = 60f / (weaponRpm * counter);
+				float timeDelayPerGun = 60f / gunRippleRpm;
 
 				// Now lets act on the filtered list.
 				List<ModuleWeapon>.Enumerator weapon = rippleWeapons.GetEnumerator();
@@ -3215,8 +3215,11 @@ namespace BDArmory.Modules
             float targetWeaponRPM = 0;
             float targetWeaponTDPS = 0;
             float targetWeaponImpact = 0;
+			float targetWeaponPower = 0;
+			float targetThrust = 0;
 
-            if (target.isMissile)
+
+			if (target.isMissile)
             {
                 // iterate over weaponTypesMissile and pick suitable one based on engagementRange (and dynamic launch zone for missiles)
                 // Prioritize by:
@@ -3285,7 +3288,7 @@ namespace BDArmory.Modules
                 // 1. AA missiles, if range > gunRange
                 // 1. Lasers
                 // 2. Guns
-                // 
+                // 3. Rockets
                 List<IBDWeapon>.Enumerator item = weaponTypesAir.GetEnumerator();
                 while (item.MoveNext())
                 {
@@ -3297,8 +3300,13 @@ namespace BDArmory.Modules
 
                     if (candidateClass == WeaponClasses.DefenseLaser)
                     {
-                        // TODO: compare lasers which one is better for AA
-                        targetWeapon = item.Current;
+						float candidatePower = ((ModuleWeapon)item.Current).laserDamage;
+
+						if ((targetWeapon != null) && (targetWeaponPower > candidatePower))
+							continue; //dont replace better guns (but do replace missiles)
+						targetWeaponPower = candidatePower;
+
+						targetWeapon = item.Current;
                         if (distance <= gunRange)
                             break;
                     }
@@ -3315,30 +3323,34 @@ namespace BDArmory.Modules
                         targetWeaponRPM = candidateRPM;
                     }
 
-                    if (candidateClass != WeaponClasses.Missile) continue;
+					if (candidateClass == WeaponClasses.Rocket)
+					{
+						//float candidateThrust = ((RocketLauncher)item.Current).thrust;
+
+						if (targetWeapon != null) 
+							continue;
+						if (targetWeapon.GetWeaponClass() == WeaponClasses.Gun)
+							continue; // prefer guns over rockets for AA
+						//if (targetThrust > candidateThrust)
+						//	continue; //dont replace faster rockets 
+						else
+
+							targetWeapon = item.Current;
+							//targetThrust = candidateThrust;
+					}
+
+					if (candidateClass != WeaponClasses.Missile) continue;
                     MissileLauncher mlauncher = item.Current as MissileLauncher;
                     float candidateTDPS = 0f;
 
-                    if (mlauncher != null)
-                    {
-                        candidateTDPS = mlauncher.thrust + mlauncher.maxTurnRateDPS;
-                    }
-                    else
-                    { //is modular missile
-                        BDModularGuidance mm = item.Current as BDModularGuidance;
-                        candidateTDPS = 5000;
-                    }
-					if (candidateClass == WeaponClasses.Rocket)
+					if (mlauncher != null)
 					{
-
-						if ((targetWeapon != null) && (targetWeapon.GetWeaponClass() == WeaponClasses.Gun))
-							// dont replace bombs
-							continue;
-						else
-							// TODO: compare bombs which one is better for ground attack
-							// Priority Sequence:
-							// - by blast strength
-							targetWeapon = item.Current;
+						candidateTDPS = mlauncher.thrust + mlauncher.maxTurnRateDPS;
+					}
+					else
+					{ //is modular missile
+						BDModularGuidance mm = item.Current as BDModularGuidance;
+						candidateTDPS = 5000;
 					}
 					if (targetWeapon == null)
                     {

@@ -66,8 +66,8 @@ namespace BDArmory.Modules
         public float heat;
         public bool isOverheated;
 		public bool isOutofAmmo;
-		public float ammoAmount = 1000;
-		public float ammoMax = 1000;
+		public float ammoAmount;
+		public float ammoMax;
 		private bool wasFiring;
             //used for knowing when to stop looped audio clip (when you're not shooting, but you were)
 
@@ -273,10 +273,10 @@ namespace BDArmory.Modules
 
         private BulletInfo bulletInfo;
 
-        [KSPField]
-        public string bulletType = "def";
+		[KSPField]
+		public string bulletType = "def";
 
-        [KSPField]
+		[KSPField]
         public string ammoName = "50CalAmmo"; //resource usage
         [KSPField]
         public float requestResourceAmount = 1; //amount of resource/ammo to deplete per shot
@@ -564,7 +564,7 @@ namespace BDArmory.Modules
                 Events["ToggleRipple"].guiActiveEditor = false;
                 Fields["useRippleFire"].guiActiveEditor = false;
             }
-            vessel.Velocity();
+			vessel.Velocity();
             if (airDetonation)
             {
                 UI_FloatRange detRange = (UI_FloatRange)Fields["defaultDetonationRange"].uiControlEditor;
@@ -797,8 +797,8 @@ namespace BDArmory.Modules
                 }
 
 
-                if (vessel.isActiveVessel)
-                {
+				if (vessel.isActiveVessel && !BDArmorySettings.INFINITE_AMMO)
+				{
 					List<Part>.Enumerator p = vessel.parts.GetEnumerator(); //grab ammo amounts
 					while (p.MoveNext())
 					{
@@ -818,30 +818,28 @@ namespace BDArmory.Modules
 						resource.Dispose();
 					}
 					p.Dispose();
-					if (showReloadMeter)
-                    {
-                        UpdateReloadMeter();
-                    }
-					else
+
+					part.stackIcon.ClearInfoBoxes();
+					if (!isOutofAmmo) //init UI gauges
 					{
-						part.stackIcon.ClearInfoBoxes();
-						if (!isOutofAmmo) //init UI gauges
-						{
-							ammoGauge = InitAmmoGauge(); //simply using InitXXXXGauge() will spawn endless gauges
-						}
-						if (isOutofAmmo)
-						{
-							emptyGauge = InitEmptyGauge();
-						}
-						if ((heat > maxHeat / 3))
-						{
-							heatGauge = InitHeatGauge();
-						}
-						UpdateHeatMeter();
-						UpdateAmmoMeter();
-						UpdateEmptyAlert();
-						UpdateAmmo();
+						ammoGauge = InitAmmoGauge(); //simply using InitXXXXGauge() will spawn endless gauges
 					}
+					if (isOutofAmmo)
+					{
+						emptyGauge = InitEmptyGauge();
+					}
+					if ((heat > maxHeat / 3))
+					{
+						heatGauge = InitHeatGauge();
+					}
+					if (showReloadMeter)
+					{
+						UpdateReloadMeter();
+					}
+					UpdateHeatMeter();
+					UpdateAmmoMeter();
+					UpdateEmptyAlert();
+					UpdateAmmo();
 				}
 				UpdateHeat();
 
@@ -2056,17 +2054,24 @@ namespace BDArmory.Modules
         }
 		void UpdateAmmo()
 		{
-			if (BDArmorySettings.INFINITE_AMMO || ammoAmount > 0)
+			if (!BDArmorySettings.INFINITE_AMMO)
 			{
-				isOutofAmmo = false;
+				if (ammoAmount > 0)
+				{
+					isOutofAmmo = false;
+				}
+				else
+				{
+					isOutofAmmo = true;
+					autoFire = false;
+					audioSource.Stop();
+					wasFiring = false;
+					weaponManager.ResetGuardInterval();
+				}
 			}
 			else
 			{
-				isOutofAmmo = true;
-				autoFire = false;
-				audioSource.Stop();
-				wasFiring = false;
-				weaponManager.ResetGuardInterval();
+				isOutofAmmo = false;
 			}
 		}
 		public void UpdateAmmoMeter()
@@ -2111,7 +2116,7 @@ namespace BDArmory.Modules
 				}
 				emptyGauge?.SetValue(1, 0, 1);    //null check
 			}
-			else if (emptyGauge != null && !isOutofAmmo)
+			else if (emptyGauge != null && !isOutofAmmo || BDArmorySettings.INFINITE_AMMO)
 			{
 				part.stackIcon.ClearInfoBoxes();
 				emptyGauge = null;
@@ -2170,7 +2175,16 @@ namespace BDArmory.Modules
                 {
                     audioSource.PlayOneShot(reloadCompleteAudioClip);
                 }
-            }
+				heatGauge = null;
+				if (!isOutofAmmo)
+				{
+					ammoGauge = InitAmmoGauge();
+				}
+				if (isOutofAmmo)
+				{
+					emptyGauge = InitEmptyGauge();
+				}
+			}
         }
 
         void UpdateTargetVessel()
@@ -2319,7 +2333,8 @@ namespace BDArmory.Modules
 			{
 				a.SetMsgBgColor(XKCDColors.Grey);
 				a.SetMsgTextColor(XKCDColors.Yellow);
-				a.SetMessage("Ammunition");
+				//a.SetMessage("Ammunition");
+				a.SetMessage($"{ammoName}");
 				a.SetProgressBarBgColor(XKCDColors.DarkGrey);
 				a.SetProgressBarColor(XKCDColors.Yellow);
 			}

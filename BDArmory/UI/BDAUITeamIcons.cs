@@ -14,7 +14,29 @@ namespace BDArmory.UI
 
 		public BDAUITeamIcons Instance;
 		private float updateList = 0;
-		public MissileBase MissileBaseModule;
+
+		public static string textureDir = "BDArmory/Textures/";
+
+		private Texture2D tat;
+
+		public Texture2D teamATexture
+		{
+			get { return tat ? tat : tat = GameDatabase.Instance.GetTexture(textureDir + "teamA", false); }
+		}
+
+		private Texture2D tbt;
+
+		public Texture2D teamBTexture
+		{
+			get { return tbt ? tbt : tbt = GameDatabase.Instance.GetTexture(textureDir + "teamB", false); }
+		}
+
+		private Texture2D dit;
+
+		public Texture2D debrisIconTexture
+		{
+			get { return dit ? dit : dit = GameDatabase.Instance.GetTexture(textureDir + "debrisIcon", false); }
+		}
 
 		void Awake()
 		{
@@ -71,7 +93,7 @@ namespace BDArmory.UI
 				if (updateList < 0)
 				{
 					UpdateList();
-					updateList = 0.5f;
+					updateList = 0.5f; // check team lists less often than every frame
 				}
 			}
 		}
@@ -115,10 +137,10 @@ namespace BDArmory.UI
 				tBStyle.fontSize = 10;
 				tBStyle.normal.textColor = XKCDColors.StrongBlue;
 
-				GUIStyle mwStyle = new GUIStyle();
-				mwStyle.fontStyle = FontStyle.Normal;
-				mwStyle.fontSize = 10;
-				mwStyle.normal.textColor = XKCDColors.ElectricLime;
+				GUIStyle mIStyle = new GUIStyle();
+				mIStyle.fontStyle = FontStyle.Normal;
+				mIStyle.fontSize = 10;
+				mIStyle.normal.textColor = XKCDColors.ElectricGreen;
 
 				{
 					float size = 45;
@@ -150,7 +172,7 @@ namespace BDArmory.UI
 									UIdist = distance.ToString("0.0");
 								}
 
-								BDGUIUtils.DrawTextureOnWorldPos(wma.Current.vessel.CoM, BDArmorySetup.Instance.teamATexture, new Vector2(size, size), 0);
+								BDGUIUtils.DrawTextureOnWorldPos(wma.Current.vessel.CoM, teamATexture, new Vector2(size, size), 0);
 								if (BDGUIUtils.WorldToGUIPos(wma.Current.vessel.CoM, out guiPos))
 								{
 									if (BDArmorySettings.DRAW_TEAM_NAMES)
@@ -194,7 +216,7 @@ namespace BDArmory.UI
 									UoM = "m";
 									UIdist = distance.ToString("0.0");
 								}
-								BDGUIUtils.DrawTextureOnWorldPos(wmb.Current.vessel.CoM, BDArmorySetup.Instance.teamBTexture, new Vector2(size, size), 0);
+								BDGUIUtils.DrawTextureOnWorldPos(wmb.Current.vessel.CoM, teamBTexture, new Vector2(size, size), 0);
 								if (BDGUIUtils.WorldToGUIPos(wmb.Current.vessel.CoM, out guiPos))
 								{
 									if (BDArmorySettings.DRAW_TEAM_NAMES)
@@ -216,7 +238,23 @@ namespace BDArmory.UI
 					{
 						if (v.Current == null) continue;
 						if (!v.Current.loaded) continue;
-						if (v.Current.IsControllable && v.Current.isCommandable && !v.Current.isActiveVessel) continue;
+						if (v.Current.vesselType != VesselType.Debris && !v.Current.isActiveVessel) continue;
+						{
+							Vector3 sPos = FlightGlobals.ActiveVessel.vesselTransform.position;
+							Vector3 tPos = v.Current.vesselTransform.position;
+							Vector3 Dist = (tPos - sPos);
+							if (Dist.magnitude > 100)
+							{
+								BDGUIUtils.DrawTextureOnWorldPos(v.Current.CoM, debrisIconTexture, new Vector2(20, 20), 0);
+							}
+						}
+					}
+					List<MissileBase>.Enumerator ml = v.Current.FindPartModulesImplementing<MissileBase>().GetEnumerator();
+					while (ml.MoveNext())
+					{
+						if (ml.Current == null) continue;
+						if (!ml.Current.vessel.loaded) continue;
+						if (ml.Current.MissileState == MissileBase.MissileStates.Boost || ml.Current.MissileState == MissileBase.MissileStates.Cruise)
 						{
 							Vector3 sPos = FlightGlobals.ActiveVessel.vesselTransform.position;
 							Vector3 tPos = v.Current.vesselTransform.position;
@@ -224,30 +262,23 @@ namespace BDArmory.UI
 							Vector2 guiPos;
 							string UIdist;
 							string UoM;
-							if ((Dist.magnitude / 1000) >= 1)
-							{
-								UoM = "km";
-								UIdist = (Dist.magnitude / 1000).ToString("0.00");
-							}
-							else
-							{
-								UoM = "m";
-								UIdist = Dist.magnitude.ToString("0.0");
-							}
 							if (Dist.magnitude > 100)
 							{
-								if (v.Current.vesselType == VesselType.Probe && !v.Current.FindPartModuleImplementing<ModuleCommand>())
+								if ((Dist.magnitude / 1000) >= 1)
 								{
-									BDGUIUtils.DrawTextureOnWorldPos(v.Current.CoM, BDArmorySetup.Instance.greenDiamondTexture, new Vector2(15, 15), 0);
-									if (BDGUIUtils.WorldToGUIPos(v.Current.vesselTransform.position, out guiPos))
-									{
-										Rect distRect = new Rect(guiPos.x, (guiPos.y + 20), 100, 32);
-										GUI.Label(distRect, UIdist + UoM, mwStyle);
-									}
+									UoM = "km";
+									UIdist = (Dist.magnitude / 1000).ToString("0.00");
 								}
 								else
 								{
-									BDGUIUtils.DrawTextureOnWorldPos(v.Current.CoM, BDArmorySetup.Instance.debrisIconTexture, new Vector2(20, 20), 0);
+									UoM = "m";
+									UIdist = Dist.magnitude.ToString("0.0");
+								}
+								BDGUIUtils.DrawTextureOnWorldPos(v.Current.CoM, BDArmorySetup.Instance.greenDiamondTexture, new Vector2(20, 20), 0);
+								if (BDGUIUtils.WorldToGUIPos(ml.Current.vessel.CoM, out guiPos))
+								{
+									Rect distRect = new Rect((guiPos.x - 12), (guiPos.y + 10), 100, 32);
+									GUI.Label(distRect, UIdist + UoM, mIStyle);
 								}
 							}
 						}

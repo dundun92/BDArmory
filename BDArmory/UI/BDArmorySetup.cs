@@ -280,26 +280,7 @@ namespace BDArmory.UI
             get { return si ? si : si = GameDatabase.Instance.GetTexture(textureDir + "settingsIcon", false); }
         }
 
-		private Texture2D tat;
 
-		public Texture2D teamATexture
-		{
-			get { return tat ? tat : tat = GameDatabase.Instance.GetTexture(textureDir + "teamA", false); }
-		}
-
-		private Texture2D tbt;
-
-		public Texture2D teamBTexture
-		{
-			get { return tbt ? tbt : tbt = GameDatabase.Instance.GetTexture(textureDir + "teamB", false); }
-		}
-
-		private Texture2D dit;
-
-		public Texture2D debrisIconTexture
-		{
-			get { return dit ? dit : dit = GameDatabase.Instance.GetTexture(textureDir + "debrisIcon", false); }
-		}
 
 
 		#endregion
