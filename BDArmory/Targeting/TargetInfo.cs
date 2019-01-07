@@ -127,7 +127,7 @@ namespace BDArmory.Targeting
 				{
 					return true;
 				}
-				else if(weaponManager && weaponManager.vessel.IsControllable)
+				else if (weaponManager && weaponManager.vessel.isCommandable) //originally isControllable, but causes Ai to ignore vessels with unconscious kerbals if G-limits enabled
 				{
 					return true;
 				}
