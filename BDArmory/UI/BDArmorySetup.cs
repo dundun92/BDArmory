@@ -280,12 +280,9 @@ namespace BDArmory.UI
             get { return si ? si : si = GameDatabase.Instance.GetTexture(textureDir + "settingsIcon", false); }
         }
 
+        #endregion 
 
-
-
-		#endregion
-
-		public static bool GameIsPaused
+        public static bool GameIsPaused
         {
             get { return PauseMenu.isOpen || Time.timeScale == 0; }
         }
@@ -424,7 +421,7 @@ namespace BDArmory.UI
 				BDGUIUtils.RepositionWindow(ref WindowRectWingCommander);
 				BDGUIUtils.RepositionWindow(ref WindowRectTargetingCam);
 			}
-        }
+		}
 
     void Update()
         {
@@ -1397,7 +1394,7 @@ namespace BDArmory.UI
 			BDArmorySettings.PAINTBALL = GUI.Toggle(SLeftRect(line), BDArmorySettings.PAINTBALL, "Paintball Mode");
 			BDArmorySettings.DRAW_TEAM_ICONS = GUI.Toggle(SRightRect(line), BDArmorySettings.DRAW_TEAM_ICONS, "Team Icons");
 			line++;
-			bool origPm = BDArmorySettings.PEACE_MODE;
+            bool origPm = BDArmorySettings.PEACE_MODE;
             BDArmorySettings.PEACE_MODE = GUI.Toggle(SLeftRect(line), BDArmorySettings.PEACE_MODE, "Peace Mode");
 			BDArmorySettings.DRAW_TEAM_NAMES = GUI.Toggle(SRightRect(line), BDArmorySettings.DRAW_TEAM_NAMES, "Team Icon Name Tags");
 			if (BDArmorySettings.PEACE_MODE && !origPm)
@@ -1520,7 +1517,7 @@ namespace BDArmory.UI
 
             line += 1.5f;
             settingsHeight = (line*settingsLineHeight);
-			WindowRectSettings.height = settingsHeight;
+            WindowRectSettings.height = settingsHeight;
 			if (BDArmorySettings.STRICT_WINDOW_BOUNDARIES)
 			{
 				BDGUIUtils.RepositionWindow(ref WindowRectSettings);

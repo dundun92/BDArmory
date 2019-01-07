@@ -297,14 +297,14 @@ namespace BDArmory.UI
             height += vesselLineB * (_buttonHeight + _buttonGap);
             height += _margin;
 
-			_windowHeight = height;
+            _windowHeight = height;
 			if (BDArmorySettings.STRICT_WINDOW_BOUNDARIES)
 			{
 				BDGUIUtils.RepositionWindow(ref BDArmorySetup.WindowRectVesselSwitcher);
 			}
-    }
+		}
 
-    private string UpdateVesselStatus(MissileFire wm, GUIStyle vButtonStyle)
+		private string UpdateVesselStatus(MissileFire wm, GUIStyle vButtonStyle)
         {
             string status = "";
             if (wm.vessel.LandedOrSplashed)

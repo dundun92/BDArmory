@@ -144,6 +144,7 @@ namespace BDArmory.UI
 
 				{
 					float size = 45;
+
 					List<MissileFire>.Enumerator wma = _teamA.GetEnumerator();
 					while (wma.MoveNext())
 					{
@@ -237,7 +238,42 @@ namespace BDArmory.UI
 					while (v.MoveNext())
 					{
 						if (v.Current == null) continue;
-						if (!v.Current.loaded) continue;
+						if (!v.Current.loaded || v.Current.packed) continue;
+						List<MissileBase>.Enumerator ml = v.Current.FindPartModulesImplementing<MissileBase>().GetEnumerator();
+						while (ml.MoveNext())
+						{
+							if (ml.Current == null) continue;
+							if (!ml.Current.vessel.loaded) continue;
+							if (ml.Current.MissileState == MissileBase.MissileStates.Boost || ml.Current.MissileState == MissileBase.MissileStates.Cruise)
+							{
+								Vector3 sPos = FlightGlobals.ActiveVessel.vesselTransform.position;
+								Vector3 tPos = v.Current.vesselTransform.position;
+								Vector3 Dist = (tPos - sPos);
+								Vector2 guiPos;
+								string UIdist;
+								string UoM;
+								if (Dist.magnitude > 100)
+								{
+									if ((Dist.magnitude / 1000) >= 1)
+									{
+										UoM = "km";
+										UIdist = (Dist.magnitude / 1000).ToString("0.00");
+									}
+									else
+									{
+										UoM = "m";
+										UIdist = Dist.magnitude.ToString("0.0");
+									}
+									BDGUIUtils.DrawTextureOnWorldPos(v.Current.CoM, BDArmorySetup.Instance.greenDiamondTexture, new Vector2(20, 20), 0);
+									if (BDGUIUtils.WorldToGUIPos(ml.Current.vessel.CoM, out guiPos))
+									{
+										Rect distRect = new Rect((guiPos.x - 12), (guiPos.y + 10), 100, 32);
+										GUI.Label(distRect, UIdist + UoM, mIStyle);
+									}
+								}
+							}
+						}
+						ml.Dispose();
 						if (v.Current.vesselType != VesselType.Debris && !v.Current.isActiveVessel) continue;
 						{
 							Vector3 sPos = FlightGlobals.ActiveVessel.vesselTransform.position;
@@ -246,40 +282,6 @@ namespace BDArmory.UI
 							if (Dist.magnitude > 100)
 							{
 								BDGUIUtils.DrawTextureOnWorldPos(v.Current.CoM, debrisIconTexture, new Vector2(20, 20), 0);
-							}
-						}
-					}
-					List<MissileBase>.Enumerator ml = v.Current.FindPartModulesImplementing<MissileBase>().GetEnumerator();
-					while (ml.MoveNext())
-					{
-						if (ml.Current == null) continue;
-						if (!ml.Current.vessel.loaded) continue;
-						if (ml.Current.MissileState == MissileBase.MissileStates.Boost || ml.Current.MissileState == MissileBase.MissileStates.Cruise)
-						{
-							Vector3 sPos = FlightGlobals.ActiveVessel.vesselTransform.position;
-							Vector3 tPos = v.Current.vesselTransform.position;
-							Vector3 Dist = (tPos - sPos);
-							Vector2 guiPos;
-							string UIdist;
-							string UoM;
-							if (Dist.magnitude > 100)
-							{
-								if ((Dist.magnitude / 1000) >= 1)
-								{
-									UoM = "km";
-									UIdist = (Dist.magnitude / 1000).ToString("0.00");
-								}
-								else
-								{
-									UoM = "m";
-									UIdist = Dist.magnitude.ToString("0.0");
-								}
-								BDGUIUtils.DrawTextureOnWorldPos(v.Current.CoM, BDArmorySetup.Instance.greenDiamondTexture, new Vector2(20, 20), 0);
-								if (BDGUIUtils.WorldToGUIPos(ml.Current.vessel.CoM, out guiPos))
-								{
-									Rect distRect = new Rect((guiPos.x - 12), (guiPos.y + 10), 100, 32);
-									GUI.Label(distRect, UIdist + UoM, mIStyle);
-								}
 							}
 						}
 					}

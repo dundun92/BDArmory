@@ -7,7 +7,7 @@ namespace BDArmory.Core
         
         [BDAPersistantSettingsField] public static bool INSTAKILL = false;
         [BDAPersistantSettingsField] public static bool BULLET_HITS = true;
-		[BDAPersistantSettingsField] public static bool PAINTBALL = false;
+		[BDAPersistantSettingsField] public static bool PAINTBALL = true;
 		[BDAPersistantSettingsField] public static bool BULLET_DECALS = true;
         [BDAPersistantSettingsField] public static int MAX_NUM_BULLET_DECALS = 200;
         [BDAPersistantSettingsField] public static float PHYSICS_RANGE = 0;                 //TODO: remove all references to this so it can be deprecated!
@@ -19,7 +19,8 @@ namespace BDArmory.Core
 		[BDAPersistantSettingsField] public static bool DRAW_TEAM_ICONS = false;
 		[BDAPersistantSettingsField] public static bool DRAW_TEAM_NAMES = false;
 		[BDAPersistantSettingsField] public static bool DRAW_AIMERS = true;
-        [BDAPersistantSettingsField] public static bool AIM_ASSIST = true;
+		[BDAPersistantSettingsField] public static bool STRICT_WINDOW_BOUNDARIES = true;
+		[BDAPersistantSettingsField] public static bool AIM_ASSIST = true;
         [BDAPersistantSettingsField] public static bool REMOTE_SHOOTING = false;
         [BDAPersistantSettingsField] public static bool BOMB_CLEARANCE_CHECK = true;
         [BDAPersistantSettingsField] public static float MAX_BULLET_RANGE = 8000f;               //TODO: remove all references to this so it can be deprecated! all ranges should be supplied in part config!
@@ -37,8 +38,7 @@ namespace BDArmory.Core
         [BDAPersistantSettingsField] public static float TARGET_WINDOW_SCALE_MIN = 0.50f;
         [BDAPersistantSettingsField] public static float TARGET_WINDOW_SCALE = 1f;
         [BDAPersistantSettingsField] public static float TARGET_WINDOW_SCALE_MAX = 2f;
-		[BDAPersistantSettingsField] public static bool STRICT_WINDOW_BOUNDARIES = false;
-		[BDAPersistantSettingsField] public static float BDARMORY_UI_VOLUME = 0.35f;
+        [BDAPersistantSettingsField] public static float BDARMORY_UI_VOLUME = 0.35f;
         [BDAPersistantSettingsField] public static float BDARMORY_WEAPONS_VOLUME = 0.32f;
         [BDAPersistantSettingsField] public static float MAX_GUARD_VISUAL_RANGE = 40000f;
         [BDAPersistantSettingsField] public static float MAX_ACTIVE_RADAR_RANGE = 40000f;        //NOTE: used ONLY for display range of radar windows! Actual radar range provided by part configs!

@@ -2230,107 +2230,108 @@ namespace BDArmory.Modules
                 bombPart = null;
             }
 
-            //gun ripple stuff
-            if (selectedWeapon != null && selectedWeapon.GetWeaponClass() == WeaponClasses.Gun &&
-                currentGun.roundsPerMinute < 1500)
-            {
-                float counter = 0; // Used to get a count of the ripple weapons.  a float version of rippleGunCount.
-                gunRippleIndex = 0;
-                // This value will be incremented as we set the ripple weapons
-                rippleGunCount = 0;
-                float weaponRpm = 0;  // used to set the rippleGunRPM
+			//gun ripple stuff
+			if (selectedWeapon != null && selectedWeapon.GetWeaponClass() == WeaponClasses.Gun &&
+				currentGun.roundsPerMinute < 1500)
+			{
+				float counter = 0; // Used to get a count of the ripple weapons.  a float version of rippleGunCount.
+				gunRippleIndex = 0;
+				// This value will be incremented as we set the ripple weapons
+				rippleGunCount = 0;
+				float weaponRpm = 0;  // used to set the rippleGunRPM
 
-                // JDK:  this looks like it can be greatly simplified...
-                #region Old Code (for reference.  remove when satisfied new code works as expected.
-                //List<ModuleWeapon> tempListModuleWeapon = vessel.FindPartModulesImplementing<ModuleWeapon>();
-                //foreach (ModuleWeapon weapon in tempListModuleWeapon)
-                //{
-                //    if (selectedWeapon.GetShortName() == weapon.GetShortName())
-                //    {
-                //        weapon.rippleIndex = Mathf.RoundToInt(counter);
-                //        weaponRPM = weapon.roundsPerMinute;
-                //        ++counter;
-                //        rippleGunCount++;
-                //    }
-                //}
-                //gunRippleRpm = weaponRPM * counter;
-                //float timeDelayPerGun = 60f / (weaponRPM * counter);
-                ////number of seconds between each gun firing; will reduce with increasing RPM or number of guns
-                //foreach (ModuleWeapon weapon in tempListModuleWeapon)
-                //{
-                //    if (selectedWeapon.GetShortName() == weapon.GetShortName())
-                //    {
-                //        weapon.initialFireDelay = timeDelayPerGun; //set the time delay for moving to next index
-                //    }
-                //}
+				// JDK:  this looks like it can be greatly simplified...
+				#region Old Code (for reference.  remove when satisfied new code works as expected.
+				//List<ModuleWeapon> tempListModuleWeapon = vessel.FindPartModulesImplementing<ModuleWeapon>();
+				//foreach (ModuleWeapon weapon in tempListModuleWeapon)
+				//{
+				//    if (selectedWeapon.GetShortName() == weapon.GetShortName())
+				//    {
+				//        weapon.rippleIndex = Mathf.RoundToInt(counter);
+				//        weaponRPM = weapon.roundsPerMinute;
+				//        ++counter;
+				//        rippleGunCount++;
+				//    }
+				//}
+				//gunRippleRpm = weaponRPM * counter;
+				//float timeDelayPerGun = 60f / (weaponRPM * counter);
+				////number of seconds between each gun firing; will reduce with increasing RPM or number of guns
+				//foreach (ModuleWeapon weapon in tempListModuleWeapon)
+				//{
+				//    if (selectedWeapon.GetShortName() == weapon.GetShortName())
+				//    {
+				//        weapon.initialFireDelay = timeDelayPerGun; //set the time delay for moving to next index
+				//    }
+				//}
 
-                //RippleOption ro; //ripplesetup and stuff
-                //if (rippleDictionary.ContainsKey(selectedWeapon.GetShortName()))
-                //{
-                //    ro = rippleDictionary[selectedWeapon.GetShortName()];
-                //}
-                //else
-                //{
-                //    ro = new RippleOption(currentGun.useRippleFire, 650); //take from gun's persistant value
-                //    rippleDictionary.Add(selectedWeapon.GetShortName(), ro);
-                //}
+				//RippleOption ro; //ripplesetup and stuff
+				//if (rippleDictionary.ContainsKey(selectedWeapon.GetShortName()))
+				//{
+				//    ro = rippleDictionary[selectedWeapon.GetShortName()];
+				//}
+				//else
+				//{
+				//    ro = new RippleOption(currentGun.useRippleFire, 650); //take from gun's persistant value
+				//    rippleDictionary.Add(selectedWeapon.GetShortName(), ro);
+				//}
 
-                //foreach (ModuleWeapon w in vessel.FindPartModulesImplementing<ModuleWeapon>())
-                //{
-                //    if (w.GetShortName() == selectedWeapon.GetShortName())
-                //        w.useRippleFire = ro.rippleFire;
-                //}
-                #endregion
+				//foreach (ModuleWeapon w in vessel.FindPartModulesImplementing<ModuleWeapon>())
+				//{
+				//    if (w.GetShortName() == selectedWeapon.GetShortName())
+				//        w.useRippleFire = ro.rippleFire;
+				//}
+				#endregion
 
-                // TODO:  JDK verify new code works as expected.
-                // New code, simplified. 
+				// TODO:  JDK verify new code works as expected.
+				// New code, simplified. 
 
-                //First lest set the Ripple Option. Doing it first eliminates a loop.
-                RippleOption ro; //ripplesetup and stuff
-                if (rippleDictionary.ContainsKey(selectedWeapon.GetShortName()))
-                {
-                    ro = rippleDictionary[selectedWeapon.GetShortName()];
-                }
-                else
-                {
-                    ro = new RippleOption(currentGun.useRippleFire, 650); //take from gun's persistant value
-                    rippleDictionary.Add(selectedWeapon.GetShortName(), ro);
-                }
-
-                //Get ripple weapon count, so we don't have to enumerate the whole list again.
-                List<ModuleWeapon> rippleWeapons = new List<ModuleWeapon>();
-                List<ModuleWeapon>.Enumerator weapCnt = vessel.FindPartModulesImplementing<ModuleWeapon>().GetEnumerator();
-                while (weapCnt.MoveNext())
-                {
-                    if (weapCnt.Current == null) continue;
-                    if (selectedWeapon.GetShortName() != weapCnt.Current.GetShortName()) continue;
-                    //guessing that all weapons of the same shortname have the same rpm, as we are storing the last found weapon value...
-                    weaponRpm = weapCnt.Current.roundsPerMinute;
-                    counter += weaponRpm;
+				//First lest set the Ripple Option. Doing it first eliminates a loop.
+				RippleOption ro; //ripplesetup and stuff
+				if (rippleDictionary.ContainsKey(selectedWeapon.GetShortName()))
+				{
+					ro = rippleDictionary[selectedWeapon.GetShortName()];
 				}
-                weapCnt.Dispose();
+				else
+				{
+					ro = new RippleOption(currentGun.useRippleFire, 650); //take from gun's persistant value
+					rippleDictionary.Add(selectedWeapon.GetShortName(), ro);
+				}
 
-                gunRippleRpm = counter;
+				//Get ripple weapon count, so we don't have to enumerate the whole list again.
+				List<ModuleWeapon> rippleWeapons = new List<ModuleWeapon>();
+				List<ModuleWeapon>.Enumerator weapCnt = vessel.FindPartModulesImplementing<ModuleWeapon>().GetEnumerator();
+				while (weapCnt.MoveNext())
+				{
+					if (weapCnt.Current == null) continue;
+					if (selectedWeapon.GetShortName() != weapCnt.Current.GetShortName()) continue;
+					//guessing that all weapons of the same shortname have the same rpm, as we are storing the last found weapon value...
+					weaponRpm = weapCnt.Current.roundsPerMinute;
+					rippleWeapons.Add(weapCnt.Current);
+					counter += weaponRpm;
+				}
+				weapCnt.Dispose();
+
+				gunRippleRpm = counter;
 				//number of seconds between each gun firing; will reduce with increasing RPM or number of guns
 				float timeDelayPerGun = 60f / gunRippleRpm;
 
 				// Now lets act on the filtered list.
 				List<ModuleWeapon>.Enumerator weapon = rippleWeapons.GetEnumerator();
-                while (weapon.MoveNext())
-                {
-                    if (weapon.Current == null) continue;
-                    // set the weapon ripple index just before we increment rippleGunCount.
-                    weapon.Current.rippleIndex = rippleGunCount;
-                    //set the time delay for moving to next index
-                    weapon.Current.initialFireDelay = timeDelayPerGun;
-                    weapon.Current.useRippleFire = ro.rippleFire;
-                    rippleGunCount++;
-                }
-                weapon.Dispose();
-            }
+				while (weapon.MoveNext())
+				{
+					if (weapon.Current == null) continue;
+					// set the weapon ripple index just before we increment rippleGunCount.
+					weapon.Current.rippleIndex = rippleGunCount;
+					//set the time delay for moving to next index
+					weapon.Current.initialFireDelay = timeDelayPerGun;
+					weapon.Current.useRippleFire = ro.rippleFire;
+					rippleGunCount++;
+				}
+				weapon.Dispose();
+			}
 
-            //rocket
-            FindNextRocket(null);
+			//rocket
+			FindNextRocket(null);
 
             ToggleTurret();
             SetMissileTurrets();
@@ -3215,11 +3216,8 @@ namespace BDArmory.Modules
             float targetWeaponRPM = 0;
             float targetWeaponTDPS = 0;
             float targetWeaponImpact = 0;
-			float targetWeaponPower = 0;
-			float targetThrust = 0;
 
-
-			if (target.isMissile)
+            if (target.isMissile)
             {
                 // iterate over weaponTypesMissile and pick suitable one based on engagementRange (and dynamic launch zone for missiles)
                 // Prioritize by:
@@ -3288,7 +3286,7 @@ namespace BDArmory.Modules
                 // 1. AA missiles, if range > gunRange
                 // 1. Lasers
                 // 2. Guns
-                // 3. Rockets
+                // 
                 List<IBDWeapon>.Enumerator item = weaponTypesAir.GetEnumerator();
                 while (item.MoveNext())
                 {
@@ -3300,13 +3298,8 @@ namespace BDArmory.Modules
 
                     if (candidateClass == WeaponClasses.DefenseLaser)
                     {
-						float candidatePower = ((ModuleWeapon)item.Current).laserDamage;
-
-						if ((targetWeapon != null) && (targetWeaponPower > candidatePower))
-							continue; //dont replace better guns (but do replace missiles)
-						targetWeaponPower = candidatePower;
-
-						targetWeapon = item.Current;
+                        // TODO: compare lasers which one is better for AA
+                        targetWeapon = item.Current;
                         if (distance <= gunRange)
                             break;
                     }
@@ -3323,36 +3316,21 @@ namespace BDArmory.Modules
                         targetWeaponRPM = candidateRPM;
                     }
 
-					if (candidateClass == WeaponClasses.Rocket)
-					{
-						//float candidateThrust = ((RocketLauncher)item.Current).thrust;
-
-						if (targetWeapon != null) 
-							continue;
-						if (targetWeapon.GetWeaponClass() == WeaponClasses.Gun)
-							continue; // prefer guns over rockets for AA
-						//if (targetThrust > candidateThrust)
-						//	continue; //dont replace faster rockets 
-						else
-
-							targetWeapon = item.Current;
-							//targetThrust = candidateThrust;
-					}
-
-					if (candidateClass != WeaponClasses.Missile) continue;
+                    if (candidateClass != WeaponClasses.Missile) continue;
                     MissileLauncher mlauncher = item.Current as MissileLauncher;
                     float candidateTDPS = 0f;
 
-					if (mlauncher != null)
-					{
-						candidateTDPS = mlauncher.thrust + mlauncher.maxTurnRateDPS;
-					}
-					else
-					{ //is modular missile
-						BDModularGuidance mm = item.Current as BDModularGuidance;
-						candidateTDPS = 5000;
-					}
-					if (targetWeapon == null)
+                    if (mlauncher != null)
+                    {
+                        candidateTDPS = mlauncher.thrust + mlauncher.maxTurnRateDPS;
+                    }
+                    else
+                    { //is modular missile
+                        BDModularGuidance mm = item.Current as BDModularGuidance;
+                        candidateTDPS = 5000;
+                    }		
+
+			if (targetWeapon == null)
                     {
                         targetWeapon = item.Current;
                         targetWeaponTDPS = candidateTDPS;
@@ -3958,8 +3936,8 @@ namespace BDArmory.Modules
                 while (weapon.MoveNext())
                 {
                     if (weapon.Current == null) continue;
-					if (weapon.Current.GetShortName() != selectedWeapon.GetShortName()) continue;
-					weapon.Current.EnableWeapon();
+					if (weapon.Current.GetShortName() != selectedWeapon.GetShortName()) continue; //want to find all weapons in WeaponGroup, rather than all weapons of parttype
+					weapon.Current.EnableWeapon(); 
                     weapon.Current.aiControlled = true;
                     if (weapon.Current.yawRange >= 5 && (weapon.Current.maxPitch - weapon.Current.minPitch) >= 5)
                         weapon.Current.maxAutoFireCosAngle = 1;

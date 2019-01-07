@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
@@ -66,8 +66,8 @@ namespace BDArmory.Modules
         public float heat;
         public bool isOverheated;
 		public bool isOutofAmmo;
-		public float ammoAmount;
-		public float ammoMax;
+		public float ammoAmount = 0;
+		public float ammoMax = 0;
 		private bool wasFiring;
             //used for knowing when to stop looped audio clip (when you're not shooting, but you were)
 
@@ -103,12 +103,12 @@ namespace BDArmory.Modules
         {
             get { return Time.time - timeFired < 1; }
         }
-        
-        //used to reduce volume of audio if multiple guns are being fired (needs to be improved/changed)
-        //private int numberOfGuns = 0;
 
-        //UI gauges(next to staging icon)
-        private ProtoStageIconInfo heatGauge;
+		//used to reduce volume of audio if multiple guns are being fired (needs to be improved/changed)
+		//private int numberOfGuns = 0;
+
+		//UI gauges(next to staging icon)
+		private ProtoStageIconInfo heatGauge;
 		private ProtoStageIconInfo emptyGauge;
 		private ProtoStageIconInfo ammoGauge;
 
@@ -273,10 +273,10 @@ namespace BDArmory.Modules
 
         private BulletInfo bulletInfo;
 
-		[KSPField]
-		public string bulletType = "def";
+        [KSPField]
+        public string bulletType = "def";
 
-		[KSPField]
+        [KSPField]
         public string ammoName = "50CalAmmo"; //resource usage
         [KSPField]
         public float requestResourceAmount = 1; //amount of resource/ammo to deplete per shot
@@ -405,18 +405,20 @@ namespace BDArmory.Modules
         [KSPField]
         public bool proximityDetonation = false;
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Default Detonation Range"),
-         UI_FloatRange(minValue = 500, maxValue = 8000f, stepIncrement = 5f, scene = UI_Scene.All)]
-        public float defaultDetonationRange = 3500;
+		[KSPField(isPersistant = true, guiActive = true, guiName = "Fuzed Detonation Range ", guiActiveEditor = false)]
+		public float defaultDetonationRange = 3500;
 
-        [KSPField]
-        public float maxAirDetonationRange = 3500;
-        float detonationRange = 10f;
-        [KSPField]
-        public bool airDetonationTiming = true;
+		[KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Proximity Fuze Radius"), UI_FloatRange(minValue = 0f, maxValue = 100f, stepIncrement = 1f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]
+		public float detonationRange = 5;
 
-        //auto proximity tracking
-        [KSPField]
+		[KSPField(isPersistant = true, guiActive = false, guiActiveEditor = true, guiName = "Max Detonation Range"),
+		 UI_FloatRange(minValue = 500, maxValue = 8000f, stepIncrement = 5f, scene = UI_Scene.All)]
+		public float maxAirDetonationRange = 3500;
+		[KSPField]
+		public bool airDetonationTiming = true;
+
+		//auto proximity tracking
+		[KSPField]
         public float autoProxyTrackRange = 0;
         bool atprAcquired;
         int aptrTicker;
@@ -564,17 +566,21 @@ namespace BDArmory.Modules
                 Events["ToggleRipple"].guiActiveEditor = false;
                 Fields["useRippleFire"].guiActiveEditor = false;
             }
-			vessel.Velocity();
+            vessel.Velocity();
             if (airDetonation)
             {
-                UI_FloatRange detRange = (UI_FloatRange)Fields["defaultDetonationRange"].uiControlEditor;
-                detRange.maxValue = maxAirDetonationRange;
+                UI_FloatRange detRange = (UI_FloatRange)Fields["maxAirDetonationRange"].uiControlEditor;
+                detRange.maxValue = maxEffectiveDistance;
             }
             else
             {
-                Fields["defaultDetonationRange"].guiActive = false;
-                Fields["defaultDetonationRange"].guiActiveEditor = false;
-            }
+				Fields["maxAirDetonationRange"].guiActive = false;
+				Fields["maxAirDetonationRange"].guiActiveEditor = false;
+				Fields["defaultDetonationRange"].guiActive = false;
+				Fields["defaultDetonationRange"].guiActiveEditor = false;
+				Fields["detonationRange"].guiActive = false;
+				Fields["detonationRange"].guiActiveEditor = false;
+			}
 			muzzleFlashEmitters = new List<KSPParticleEmitter>();
             IEnumerator<Transform> mtf = part.FindModelTransforms("muzzleTransform").AsEnumerable().GetEnumerator();
             while (mtf.MoveNext())
@@ -795,38 +801,42 @@ namespace BDArmory.Modules
                     }
                     return;
                 }
-
-
-				if (vessel.isActiveVessel && !BDArmorySettings.INFINITE_AMMO)
+				if (vessel.isActiveVessel)
 				{
-					List<Part>.Enumerator p = vessel.parts.GetEnumerator(); //grab ammo amounts
-					while (p.MoveNext())
+					part.stackIcon.ClearInfoBoxes();
+					if (!BDArmorySettings.INFINITE_AMMO)
 					{
-						if (p.Current == null) continue;
-						IEnumerator<PartResource> resource = p.Current.Resources.GetEnumerator();
-						while (resource.MoveNext())
+						List<Part>.Enumerator p = vessel.parts.GetEnumerator(); //grab ammo amounts
+						while (p.MoveNext())
 						{
-							if (resource.Current == null) continue;
+							if (p.Current == null) continue;
+							IEnumerator<PartResource> resource = p.Current.Resources.GetEnumerator();
+							while (resource.MoveNext())
 							{
-								if (resource.Current.resourceName != ammoName) continue; //doesn't return ElectricCharge for the ABL, but does return resource amoutns for lasers using custom resources.
+								if (resource.Current == null) continue;
 								{
-									ammoAmount = (float)resource.Current.amount;
-									ammoMax = (float)resource.Current.maxAmount;
+									if (resource.Current.resourceName != ammoName) continue; //doesn't return ElectricCharge for the ABL, but does return resource amoutns for lasers using custom resources.
+									{
+										ammoAmount = (float)resource.Current.amount;
+										ammoMax = (float)resource.Current.maxAmount;
+									}
 								}
 							}
+							resource.Dispose();
 						}
-						resource.Dispose();
-					}
-					p.Dispose();
+						p.Dispose();
 
-					part.stackIcon.ClearInfoBoxes();
-					if (!isOutofAmmo) //init UI gauges
-					{
-						ammoGauge = InitAmmoGauge(); //simply using InitXXXXGauge() will spawn endless gauges
-					}
-					if (isOutofAmmo)
-					{
-						emptyGauge = InitEmptyGauge();
+
+						if (!isOutofAmmo) //init UI gauges
+						{
+							ammoGauge = InitAmmoGauge(); //simply using InitXXXXGauge() will spawn endless gauges
+						}
+						if (isOutofAmmo)
+						{
+							emptyGauge = InitEmptyGauge();
+						}
+						UpdateAmmoMeter();
+						UpdateEmptyAlert();
 					}
 					if ((heat > maxHeat / 3))
 					{
@@ -834,15 +844,13 @@ namespace BDArmory.Modules
 					}
 					if (showReloadMeter)
 					{
-						UpdateReloadMeter();
+						reloadBar = InitReloadBar();
 					}
 					UpdateHeatMeter();
-					UpdateAmmoMeter();
-					UpdateEmptyAlert();
+					UpdateReloadMeter();
 					UpdateAmmo();
 				}
 				UpdateHeat();
-
 				if (weaponState == WeaponStates.Enabled &&
                     (TimeWarp.WarpMode != TimeWarp.Modes.HIGH || TimeWarp.CurrentRate == 1))
                 {
@@ -895,14 +903,14 @@ namespace BDArmory.Modules
 			Events["HideUI"].active = false;
 			Events["ShowUI"].active = true;
 		}
-		[KSPEvent(guiActiveEditor = true, guiName = "Hide Weapon Name UI", active = false)]
+		[KSPEvent(guiActiveEditor = true, guiName = "Hide Weapon Group UI", active = false)]
 		public void HideUI()
 		{
 			WeaponGroupWindow.HideGUI();
 			UpdateMenus(false);
 		}
 
-		[KSPEvent(guiActiveEditor = true, guiName = "Set Weapon Name UI", active = false)]
+		[KSPEvent(guiActiveEditor = true, guiName = "Set Weapon Group UI", active = false)]
 		public void ShowUI()
 		{
 			WeaponGroupWindow.ShowGUI(this);
@@ -1165,37 +1173,27 @@ namespace BDArmory.Modules
 
                         pBullet.sourceVessel = vessel;
                         pBullet.bulletTexturePath = bulletTexturePath;
-
+                        pBullet.projectileColor = projectileColorC;
+                        pBullet.startColor = startColorC;
+                        pBullet.fadeColor = fadeColor;
                         tracerIntervalCounter++;
-						if (tracerIntervalCounter > tracerInterval)
-						{
-							tracerIntervalCounter = 0;
-							pBullet.projectileColor = projectileColorC;
-							pBullet.startColor = startColorC;
-							pBullet.fadeColor = fadeColor;
-							pBullet.tracerStartWidth = tracerStartWidth;
-							pBullet.tracerEndWidth = tracerEndWidth;
-							pBullet.tracerLength = tracerLength;
-							pBullet.tracerLuminance = tracerLuminance;
-						}
-						else
-						{
-							pBullet.tracerStartWidth = nonTracerWidth;
-							pBullet.tracerEndWidth = nonTracerWidth;
-							pBullet.projectileColor.r = 8; //could also simplify via a new KSPField bulletColorC to allow customization
-							pBullet.projectileColor.g = 8;
-							pBullet.projectileColor.b = 8;
-							pBullet.projectileColor.a = 240;
-							pBullet.startColor.r = 8;
-							pBullet.startColor.g = 8;
-							pBullet.startColor.b = 8;
-							pBullet.startColor.a = 240;
-							pBullet.tracerLength = 0;
-							pBullet.tracerLuminance = 0.4f;
-						}
-
-						pBullet.tracerDeltaFactor = tracerDeltaFactor;
-						pBullet.bulletDrop = bulletDrop;
+                        if (tracerIntervalCounter > tracerInterval)
+                        {
+                            tracerIntervalCounter = 0;
+                            pBullet.tracerStartWidth = tracerStartWidth;
+                            pBullet.tracerEndWidth = tracerEndWidth;
+                        }
+                        else
+                        {
+                            pBullet.tracerStartWidth = nonTracerWidth;
+                            pBullet.tracerEndWidth = nonTracerWidth;
+                            pBullet.startColor.a *= 0.5f;
+                            pBullet.projectileColor.a *= 0.5f;
+                        }
+                        pBullet.tracerLength = tracerLength;
+                        pBullet.tracerDeltaFactor = tracerDeltaFactor;
+                        pBullet.tracerLuminance = tracerLuminance;
+                        pBullet.bulletDrop = bulletDrop;
 
                         if ((eWeaponType == WeaponTypes.Ballistic && bulletInfo.explosive) || eWeaponType == WeaponTypes.Cannon) //WeaponTypes.Cannon is deprecated
                         {
@@ -1589,13 +1587,13 @@ namespace BDArmory.Modules
 
             UpdateVolume();
         }
-             
 
-        #endregion
 
-        #region Targeting
+		#endregion
 
-        void Aim()
+		#region Targeting
+
+		void Aim()
         {
             //AI control
             if (aiControlled && !slaved)
@@ -1726,24 +1724,20 @@ namespace BDArmory.Modules
                 targetLeadDistance = Vector3.Distance(finalTarget, fireTransforms[0].position);
                 fixedLeadOffset = originalTarget - finalTarget; //for aiming fixed guns to moving target	
 
-                //airdetonation
-                if (airDetonation)
-                {
-                    if (targetAcquired && airDetonationTiming)
-                    {                       
-                        detonationRange = BlastPhysicsUtils.CalculateBlastRange(bulletInfo.tntMass);
-                    }
-                    else
-                    {
-                        //detonationRange = defaultDetonationRange;
-                    }
-                }
-            }
-
-            if (airDetonation)
-            {
-                detonationRange *= UnityEngine.Random.Range(0.96f, 1.04f);
-            }
+				//airdetonation
+				if (airDetonation)
+				{
+					if (targetAcquired && airDetonationTiming)
+					{
+						defaultDetonationRange = targetLeadDistance;// adds VT fuzes if/when proximity fuzes fail
+					}
+					else
+					{
+						defaultDetonationRange = maxAirDetonationRange; //airburst at max range
+					}
+				}
+				//removed the detonationange += math.rand, that gets called every frame and just causes the prox fuze range to wander
+			}
 
             finalAimTarget = finalTarget;
 
@@ -2076,26 +2070,33 @@ namespace BDArmory.Modules
 		}
 		public void UpdateAmmoMeter()
 		{
-			if (!isOutofAmmo)
+			if (!BDArmorySettings.INFINITE_AMMO)
 			{
-				if (ammoGauge == null)
+				if (!isOutofAmmo)
 				{
-					ammoGauge = InitAmmoGauge();
+					if (ammoGauge == null)
+					{
+						ammoGauge = InitAmmoGauge();
+					}
+					ammoGauge?.SetValue(ammoAmount, 0, ammoMax);  //null check
 				}
-				ammoGauge?.SetValue(ammoAmount, 0, ammoMax);  //null check
-			}
-			else if (isOutofAmmo)
-			{
-				part.stackIcon.ClearInfoBoxes();
-				ammoGauge = null;
-				emptyGauge = InitEmptyGauge();
-				if (heat > maxHeat / 3) //redraw heat meter after clearing UI if necessary
+				else
 				{
-					heatGauge = InitHeatGauge();
-					heatGauge?.SetValue(heat, maxHeat / 3, maxHeat);
+					part.stackIcon.ClearInfoBoxes();
+					ammoGauge = null;
+					emptyGauge = InitEmptyGauge();
+					if (heat > maxHeat / 3) //redraw meters after clearing UI if necessary
+					{
+						heatGauge = InitHeatGauge();
+						heatGauge?.SetValue(heat, maxHeat / 3, maxHeat);
+					}
+					if (Time.time - timeFired < (60 / roundsPerMinute) && Time.time - timeFired > 0.1f)
+					{
+						reloadBar = InitReloadBar();
+					}
 				}
 			}
-			if (BDArmorySettings.INFINITE_AMMO) //clear ammo gauges if infinite ammo, they're unnecessary
+			else //clear ammo gauges if infinite ammo, they're unnecessary
 			{
 				part.stackIcon.ClearInfoBoxes();
 				ammoGauge = null;
@@ -2104,90 +2105,125 @@ namespace BDArmory.Modules
 					heatGauge = InitHeatGauge();// redraw heat meter if present
 					heatGauge?.SetValue(heat, maxHeat / 3, maxHeat);
 				}
+				if ((Time.time - timeFired < (60 / roundsPerMinute) && Time.time - timeFired > 0.1f ) && showReloadMeter)
+				{
+					reloadBar = InitReloadBar();
+					reloadBar.SetValue(Time.time - timeFired, 0, 60 / roundsPerMinute);
+				}
 			}
 		}
 		public void UpdateEmptyAlert()
 		{
-			if (isOutofAmmo)
+			if (!BDArmorySettings.INFINITE_AMMO)
 			{
-				if (emptyGauge == null)
+				if (isOutofAmmo)
 				{
-					emptyGauge = InitEmptyGauge();
+					if (emptyGauge == null)
+					{
+						emptyGauge = InitEmptyGauge();
+					}
+					emptyGauge?.SetValue(1, 0, 1);    //null check
 				}
-				emptyGauge?.SetValue(1, 0, 1);    //null check
+				else if (emptyGauge != null && !isOutofAmmo)
+				{
+					part.stackIcon.ClearInfoBoxes();
+					emptyGauge = null;
+					if (heat > maxHeat / 3)
+					{
+						heatGauge = InitHeatGauge();
+						heatGauge?.SetValue(heat, maxHeat / 3, maxHeat);
+					}
+					if ((Time.time - timeFired < (60 / roundsPerMinute) && Time.time - timeFired > 0.1f) && showReloadMeter)
+					{
+						reloadBar = InitReloadBar();
+						reloadBar.SetValue(Time.time - timeFired, 0, 60 / roundsPerMinute);
+					}
+				}
 			}
-			else if (emptyGauge != null && !isOutofAmmo || BDArmorySettings.INFINITE_AMMO)
+			else
 			{
 				part.stackIcon.ClearInfoBoxes();
 				emptyGauge = null;
 				if (heat > maxHeat / 3)
 				{
 					heatGauge = InitHeatGauge();
+					heatGauge?.SetValue(heat, maxHeat / 3, maxHeat);
+				}
+				if ((Time.time - timeFired < (60 / roundsPerMinute) && Time.time - timeFired > 0.1f) && showReloadMeter)
+				{
+					reloadBar = InitReloadBar();
+					reloadBar.SetValue(Time.time - timeFired, 0, 60 / roundsPerMinute);
 				}
 			}
+
 		}
 		void UpdateHeatMeter()
-        {
-            //heat
-            if (heat > maxHeat / 3)
-            {
-                if (heatGauge == null)
-                {
-                    heatGauge = InitHeatGauge();
-                }
-
-                heatGauge?.SetValue(heat, maxHeat / 3, maxHeat);    //null check
-            }
-            else if (heatGauge != null && heat < maxHeat / 4)
-            {
-                part.stackIcon.ClearInfoBoxes();
-                heatGauge = null;
-				if (!isOutofAmmo)
+		{
+			//heat
+			if (heat > maxHeat / 3)
+			{
+				if (heatGauge == null)
 				{
-					ammoGauge = InitAmmoGauge();
+					heatGauge = InitHeatGauge();
 				}
-				if (isOutofAmmo)
+
+				heatGauge?.SetValue(heat, maxHeat / 3, maxHeat);    //null check
+			}
+			else if (heatGauge != null && heat < maxHeat / 4)
+			{
+				part.stackIcon.ClearInfoBoxes();
+				heatGauge = null;
+				if (!BDArmorySettings.INFINITE_AMMO)
 				{
-					emptyGauge = InitEmptyGauge();
+					if (!isOutofAmmo)
+					{
+						ammoGauge = InitAmmoGauge();
+					}
+					if (isOutofAmmo)
+					{
+						emptyGauge = InitEmptyGauge();
+					}
 				}
 			}
 		}
 
 		void UpdateReloadMeter()
-        {
-            if (Time.time - timeFired < (60 / roundsPerMinute) && Time.time - timeFired > 0.1f)
-            {
-                if (reloadBar == null)
-                {
-                    reloadBar = InitReloadBar();
-                    if (reloadAudioClip)
-                    {
-                        audioSource.PlayOneShot(reloadAudioClip);
-                    }
-                }
-                reloadBar.SetValue(Time.time - timeFired, 0, 60 / roundsPerMinute);
-            }
-            else if (reloadBar != null)
-            {
-                part.stackIcon.ClearInfoBoxes();
-                reloadBar = null;
-                if (reloadCompleteAudioClip)
-                {
-                    audioSource.PlayOneShot(reloadCompleteAudioClip);
-                }
-				heatGauge = null;
-				if (!isOutofAmmo)
+		{
+			if (Time.time - timeFired < (60 / roundsPerMinute) && Time.time - timeFired > 0.1f)
+			{
+				if (reloadBar == null)
 				{
-					ammoGauge = InitAmmoGauge();
+					reloadBar = InitReloadBar();
+					if (reloadAudioClip)
+					{
+						audioSource.PlayOneShot(reloadAudioClip);
+					}
 				}
-				if (isOutofAmmo)
+				reloadBar.SetValue(Time.time - timeFired, 0, 60 / roundsPerMinute);
+			}
+			else if (reloadBar != null)
+			{
+				part.stackIcon.ClearInfoBoxes();
+				reloadBar = null;
+				if (reloadCompleteAudioClip)
 				{
-					emptyGauge = InitEmptyGauge();
+					audioSource.PlayOneShot(reloadCompleteAudioClip);
+				}
+				if (!BDArmorySettings.INFINITE_AMMO)
+				{
+					if (!isOutofAmmo)
+					{
+						ammoGauge = InitAmmoGauge();
+						ammoGauge?.SetValue(ammoAmount, 0, ammoMax);
+					}
+					if (isOutofAmmo)
+					{
+						emptyGauge = InitEmptyGauge();
+					}
 				}
 			}
-        }
-
-        void UpdateTargetVessel()
+		}
+		void UpdateTargetVessel()
         {
             targetAcquired = false;
             slaved = false;
@@ -2519,6 +2555,7 @@ namespace BDArmory.Modules
                             output.AppendLine($"- max range: {maxAirDetonationRange} m");
                         }
                     }
+
                 }
             }
             return output.ToString();
@@ -2526,7 +2563,7 @@ namespace BDArmory.Modules
 
 		#endregion
 	}
-	#region UI
+	#region UI //borrowing code from ModularMissile GUI
 	[KSPAddon(KSPAddon.Startup.EditorAny, false)]
 	public class WeaponGroupWindow : MonoBehaviour
 	{
@@ -2551,7 +2588,7 @@ namespace BDArmory.Modules
 
 		private Vector2 scrollPos;
 
-		[KSPField(isPersistant = false, guiActiveEditor = true, guiActive = false, guiName = "Show Weapon Name Editor"), UI_Toggle(enabledText = "Weapon Name GUI", disabledText = "GUI")] [NonSerialized] public bool showRFGUI;
+		[KSPField(isPersistant = false, guiActiveEditor = true, guiActive = false, guiName = "Show Group Editor"), UI_Toggle(enabledText = "close Group GUI", disabledText = "open Group GUI")] [NonSerialized] public bool showRFGUI;
 
 		private bool styleSetup;
 
@@ -2682,7 +2719,7 @@ namespace BDArmory.Modules
 			{
 				editor.Unlock("BD_MN_GUILock");
 			}
-			guiWindowRect = GUILayout.Window(GetInstanceID(), guiWindowRect, GUIWindow, "Weapon Name GUI", Styles.styleEditorPanel);
+			guiWindowRect = GUILayout.Window(GetInstanceID(), guiWindowRect, GUIWindow, "Weapon Group GUI", Styles.styleEditorPanel);
 		}
 
 		public void GUIWindow(int windowID)
@@ -2694,7 +2731,7 @@ namespace BDArmory.Modules
 
 			GUILayout.BeginHorizontal();
 
-			GUILayout.Label("Weapon Name: ");
+			GUILayout.Label("Add to Weapon Group: ");
 
 
 			txtName = GUILayout.TextField(txtName);
@@ -2703,7 +2740,7 @@ namespace BDArmory.Modules
 			if (GUILayout.Button("Save & Close"))
 			{
 				WPNmodule.WeaponName = txtName;
-				WPNmodule.shortName = txtName;
+				WPNmodule.shortName = txtName;  
 				instance.WPNmodule.HideUI();
 			}
 
@@ -2716,10 +2753,7 @@ namespace BDArmory.Modules
 			GUILayout.EndVertical();
 
 			GUI.DragWindow();
-			if (BDArmorySettings.STRICT_WINDOW_BOUNDARIES)
-			{
-				BDGUIUtils.RepositionWindow(ref guiWindowRect);
-			}
+			BDGUIUtils.RepositionWindow(ref guiWindowRect);
 		}
 
 		private static void InitializeStyles()

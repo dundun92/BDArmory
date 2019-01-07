@@ -8,6 +8,7 @@ using BDArmory.Core.Module;
 using BDArmory.FX;
 using BDArmory.Parts;
 using BDArmory.Shaders;
+using BDArmory.Modules;
 using UnityEngine;
 
 namespace BDArmory.Bullets
@@ -78,7 +79,7 @@ namespace BDArmory.Bullets
         public float caliber = 1;
         public float bulletVelocity; //muzzle velocity
         public bool explosive = false;
-        public float apBulletMod = 1;
+        public float apBulletMod = 0;
         public float ballisticCoefficient;
         public float flightTimeElapsed;
         public static Shader bulletShader;
@@ -278,11 +279,11 @@ namespace BDArmory.Bullets
                             Part hitPart = null;
                             KerbalEVA hitEVA = null;
 
-							try
+                            try
                             {
                                 hitPart = hit.collider.gameObject.GetComponentInParent<Part>();
                                 hitEVA = hit.collider.gameObject.GetComponentUpwards<KerbalEVA>();
-							}
+                            }
                             catch (NullReferenceException)
                             {
                                 Debug.Log("[BDArmory]:NullReferenceException for Ballistic Hit");
@@ -335,8 +336,8 @@ namespace BDArmory.Bullets
 
                             float penetrationFactor = CalculateArmorPenetration(hitPart, anglemultiplier, hit);
 
-							if (penetrationFactor >= 2 || BDArmorySettings.PAINTBALL) //not going to bounce if paintball
-							{
+                            if (penetrationFactor >= 2 || BDArmorySettings.PAINTBALL)
+                            {
                                 //its not going to bounce if it goes right through
                                 hasRichocheted = false;
                             }
@@ -346,8 +347,8 @@ namespace BDArmory.Bullets
                                     hasRichocheted = true;
                             }
 
-							if (penetrationFactor > 1 && !hasRichocheted && !BDArmorySettings.PAINTBALL) //fully penetrated continue ballistic damage
-							{
+                            if (penetrationFactor > 1 && !hasRichocheted && !BDArmorySettings.PAINTBALL) //fully penetrated continue ballistic damage
+                            {
                                 hasPenetrated = true;
                                 ApplyDamage(hitPart, hit, 1, penetrationFactor);
                                 penTicker += 1;
@@ -367,8 +368,8 @@ namespace BDArmory.Bullets
                                     KillBullet();
                                 }
                             }
-							else if (!hasRichocheted && !BDArmorySettings.PAINTBALL) // explosive bullets that get stopped by armor will explode 
-							{
+                            else if (!hasRichocheted && !BDArmorySettings.PAINTBALL) // explosive bullets that get stopped by armor will explode 
+                            {
                                 //New method
 
                                 if (hitPart.rb != null)
@@ -435,16 +436,16 @@ namespace BDArmory.Bullets
             //Flak Explosion (air detonation/proximity fuse)
             //////////////////////////////////////////////////
 
-            if (ProximityAirDetonation(distanceFromStart))
+            if (FuzedAirDetonation(distanceFromStart))
             {
                 //detonate
-                ExplosionFx.CreateExplosion(currPosition, tntMass, explModelPath, explSoundPath, false, caliber, null, currentVelocity);
-                KillBullet();
-
+                ExplosionFx.CreateExplosion(currPosition, GetExplosivePower(), explModelPath, explSoundPath, false, caliber, null, direction: currentVelocity);
+				KillBullet();
+				hasDetonated = true;
                 return;
             }
-
-            if (bulletDrop)
+			
+			if (bulletDrop)
             {
                 // Gravity???
                 var gravity_ = FlightGlobals.getGeeForceAtPosition(transform.position);
@@ -456,21 +457,20 @@ namespace BDArmory.Bullets
             transform.position += currentVelocity * Time.fixedDeltaTime;
         }
 
-        private bool ProximityAirDetonation(float distanceFromStart)
-        {
-            bool detonate = false;
+		private bool FuzedAirDetonation(float distanceFromStart)
+		{
+			bool detonate = false;
 
-            if (distanceFromStart <= 500f) return false;
+			if (distanceFromStart <= 500f) return false;
 
-            if (explosive && airDetonation)
-            {
-                if(distanceFromStart > maxAirDetonationRange || distanceFromStart > defaultDetonationRange)
-                {
-                    return detonate = true;
-                }
-
-                if (proximityDetonation)
-                {
+			if (explosive && airDetonation)
+			{
+				if (distanceFromStart > maxAirDetonationRange || distanceFromStart > defaultDetonationRange)
+				{
+					return detonate = true;
+				}
+				if (proximityDetonation)
+				{
                     using (var hitsEnu = Physics.OverlapSphere(transform.position, detonationRange, 557057).AsEnumerable().GetEnumerator())
                     {
                         while (hitsEnu.MoveNext())
@@ -493,35 +493,33 @@ namespace BDArmory.Bullets
                             }
                         }
                     }
-                }
-            }
-            return detonate;
-          }
+				}
+			}
+			return detonate;
+		}
 
-        private void ApplyDamage(Part hitPart, RaycastHit hit, float multiplier, float penetrationfactor)
+		private void ApplyDamage(Part hitPart, RaycastHit hit, float multiplier, float penetrationfactor)
         {
             //hitting a vessel Part
             //No struts, they cause weird bugs :) -BahamutoD
             if (hitPart == null) return;
             if (hitPart.partInfo.name.Contains("Strut")) return;
 
-			if (BDArmorySettings.BULLET_HITS)
+            if (BDArmorySettings.BULLET_HITS)
             {
                 BulletHitFX.CreateBulletHit(hitPart, hit.point, hit, hit.normal, hasRichocheted, caliber,
                     penetrationfactor);
             }
-
 			if (BDArmorySettings.PAINTBALL)
 			{
-				hitPart.AddBallisticDamage(0.005f, 5f, multiplier, 0.1f,
-	0.1f, impactVelocity);
+				hitPart.AddBallisticDamage(0.005f, 5f, multiplier, 0.1f, 0.1f, impactVelocity);
 			}
 			if (explosive && !BDArmorySettings.PAINTBALL)
-			{
+            {
                 hitPart.AddBallisticDamage(bulletMass - tntMass, caliber, multiplier, penetrationfactor,
                     bulletDmgMult, impactVelocity);
             }
-			else if (!BDArmorySettings.PAINTBALL)
+            else if (!BDArmorySettings.PAINTBALL)
 			{
                 hitPart.AddBallisticDamage(bulletMass, caliber, multiplier, penetrationfactor,
                     bulletDmgMult, impactVelocity);
@@ -615,18 +613,12 @@ namespace BDArmory.Bullets
         private float CalculatePenetration()
         {
             float penetration = 0;
-			if (apBulletMod <= 0)// sanity check against modders leaving apBulletMod = 0 in bulletdef configs
-			{
-				apBulletMod = 1; //assumes no modification to pen depth
-			}
+            if (caliber > 10 && !BDArmorySettings.PAINTBALL) //use the "krupp" penetration formula for anything larger than HMGs
+            {
+                penetration = (float)(16f * impactVelocity * Math.Sqrt(bulletMass / 1000) / Math.Sqrt(caliber));
+            }
 
-			if (caliber > 10 && !BDArmorySettings.PAINTBALL) //use the "krupp" penetration formula for anything larger than HMGs
-			{
-				penetration = (float)((16f * impactVelocity * Math.Sqrt(bulletMass / 1000) / Math.Sqrt(caliber)) * apBulletMod);
-				//apBulletMod as multiplier - default is 1 for unmodded penetration, non AP HE rounds might use, say, 0.6 for reduced penetration, AP/DU penetrators could use > 1 vals
-			}
-
-			return penetration;
+            return penetration;
         }
 
         private static float CalculateThickness(Part hitPart, float anglemultiplier)
@@ -694,8 +686,8 @@ namespace BDArmory.Bullets
             }
             catch (Exception) { }
 
-			if (building != null && building.IsIntact && !BDArmorySettings.PAINTBALL)
-			{
+            if (building != null && building.IsIntact && !BDArmorySettings.PAINTBALL)
+            {
                 float damageToBuilding = ((0.5f * (bulletMass * Mathf.Pow(currentVelocity.magnitude, 2)))
                             * (BDArmorySettings.DMG_MULTIPLIER / 100) * bulletDmgMult
                             * 1e-4f);

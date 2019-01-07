@@ -47,18 +47,21 @@ namespace BDArmory.FX
             templateShell_small.SetActive(false);
             if (decalPool_small == null)
                 decalPool_small = ObjectPool.CreateObjectPool(templateShell_small, BDArmorySettings.MAX_NUM_BULLET_DECALS, true, true);
+
 			GameObject templateShell_paint1;
 			templateShell_paint1 =
 				Instantiate(GameDatabase.Instance.GetModel("BDArmory/Models/bulletDecal/BulletDecal3"));
 			templateShell_paint1.SetActive(false);
 			if (decalPool_paint1 == null)
 				decalPool_paint1 = ObjectPool.CreateObjectPool(templateShell_paint1, BDArmorySettings.MAX_NUM_BULLET_DECALS, true, true);
+
 			GameObject templateShell_paint2;
 			templateShell_paint2 =
 				Instantiate(GameDatabase.Instance.GetModel("BDArmory/Models/bulletDecal/BulletDecal4"));
 			templateShell_paint2.SetActive(false);
 			if (decalPool_paint2 == null)
 				decalPool_paint2 = ObjectPool.CreateObjectPool(templateShell_paint2, BDArmorySettings.MAX_NUM_BULLET_DECALS, true, true);
+
 			GameObject templateShell_paint3;
 			templateShell_paint3 =
 				Instantiate(GameDatabase.Instance.GetModel("BDArmory/Models/bulletDecal/BulletDecal5"));
@@ -66,7 +69,7 @@ namespace BDArmory.FX
 			if (decalPool_paint3 == null)
 				decalPool_paint3 = ObjectPool.CreateObjectPool(templateShell_paint3, BDArmorySettings.MAX_NUM_BULLET_DECALS, true, true);
 		}
-	
+
         public static void SpawnDecal(RaycastHit hit,Part hitPart, float caliber, float penetrationfactor)
         {
             if (!BDArmorySettings.BULLET_DECALS) return;
@@ -129,8 +132,8 @@ namespace BDArmory.FX
         
         private static bool CanFlamesBeAttached(Part hitPart)
         {
-			if (!BDArmorySettings.FIRE_FX_IN_FLIGHT && !hitPart.vessel.LandedOrSplashed || !BDArmorySettings.PAINTBALL || !hitPart.HasFuel())
-				return false;            
+            if (!BDArmorySettings.FIRE_FX_IN_FLIGHT && !hitPart.vessel.LandedOrSplashed || !BDArmorySettings.PAINTBALL || !hitPart.HasFuel()) 
+                return false;            
 
             if (hitPart.vessel.LandedOrSplashed)
             {
@@ -165,6 +168,7 @@ namespace BDArmory.FX
             HitsLoaded.Enqueue(this);
             if (decalPool_large == null || decalPool_small == null)
                 SetupShellPool();
+
 			if (BDArmorySettings.PAINTBALL && decalPool_paint1 == null)
 				SetupShellPool();
 
@@ -251,13 +255,15 @@ namespace BDArmory.FX
                 SetupShellPool();
 			if (BDArmorySettings.PAINTBALL && decalPool_paint1 == null)
 				SetupShellPool();
+
 			GameObject go;
 
 			if (BDArmorySettings.PAINTBALL)
 			{
 				go = GameDatabase.Instance.GetModel("BDArmory/Models/bulletHit/bulletHit");
 			}
-			else if (caliber <= 30)
+
+			if (caliber <= 30)
             {
                 go = GameDatabase.Instance.GetModel("BDArmory/Models/bulletHit/bulletHit");
             }
