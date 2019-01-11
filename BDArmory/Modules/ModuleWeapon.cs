@@ -1172,26 +1172,37 @@ namespace BDArmory.Modules
                                                             + pBullet.currentVelocity * iTime;
 
                         pBullet.sourceVessel = vessel;
-                        pBullet.bulletTexturePath = bulletTexturePath;
-                        pBullet.projectileColor = projectileColorC;
-                        pBullet.startColor = startColorC;
-                        pBullet.fadeColor = fadeColor;
-                        tracerIntervalCounter++;
-                        if (tracerIntervalCounter > tracerInterval)
-                        {
-                            tracerIntervalCounter = 0;
-                            pBullet.tracerStartWidth = tracerStartWidth;
-                            pBullet.tracerEndWidth = tracerEndWidth;
-                        }
-                        else
-                        {
-                            pBullet.tracerStartWidth = nonTracerWidth;
-                            pBullet.tracerEndWidth = nonTracerWidth;
-                            pBullet.startColor.a *= 0.5f;
-                            pBullet.projectileColor.a *= 0.5f;
-                        }
-                        pBullet.tracerLength = tracerLength;
-                        pBullet.tracerDeltaFactor = tracerDeltaFactor;
+						pBullet.bulletTexturePath = bulletTexturePath;
+						tracerIntervalCounter++;
+						if (tracerIntervalCounter > tracerInterval)
+						{
+							tracerIntervalCounter = 0;
+							pBullet.projectileColor = projectileColorC;
+							pBullet.startColor = startColorC;
+							pBullet.fadeColor = fadeColor;
+							pBullet.tracerStartWidth = tracerStartWidth;
+							pBullet.tracerEndWidth = tracerEndWidth;
+							pBullet.tracerLength = tracerLength;
+							pBullet.tracerLuminance = tracerLuminance;
+						}
+						else
+						{
+							pBullet.tracerStartWidth = nonTracerWidth;
+							pBullet.tracerEndWidth = nonTracerWidth;
+							pBullet.projectileColor.r = 8; //could also simplify via a new KSPField bulletColorC to allow customization
+							pBullet.projectileColor.g = 8;
+							pBullet.projectileColor.b = 8;
+							pBullet.projectileColor.a = 96;
+							pBullet.startColor.r = 8;
+							pBullet.startColor.g = 8;
+							pBullet.startColor.b = 8;
+							pBullet.startColor.a = 96;
+							pBullet.tracerStartWidth = (tracerStartWidth * (4/5));
+							pBullet.tracerEndWidth = (tracerEndWidth * (4/5));
+							pBullet.tracerLength = 1;
+							pBullet.tracerLuminance = 0.4f;
+						}
+							pBullet.tracerDeltaFactor = tracerDeltaFactor;
                         pBullet.tracerLuminance = tracerLuminance;
                         pBullet.bulletDrop = bulletDrop;
 
@@ -2513,8 +2524,11 @@ namespace BDArmory.Modules
                 bulletDragTypeName = bulletInfo.bulletDragTypeName;
                 cannonShellHeat = bulletInfo.blastHeat;
                 cannonShellPower = bulletInfo.blastPower;
-                cannonShellRadius = bulletInfo.blastRadius;      
-            }
+                cannonShellRadius = bulletInfo.blastRadius;
+				detonationRange = bulletInfo.tntMass;
+				detonationRange = (float)((14.8f * Math.Pow(detonationRange, 1 / 3f))*(2/3));
+
+			}
             ParseBulletDragType();
         }
         #endregion

@@ -275,6 +275,7 @@ namespace BDArmory.UI
 						}
 						ml.Dispose();
 						if (v.Current.vesselType != VesselType.Debris && !v.Current.isActiveVessel) continue;
+						if (v.Current.LandedOrSplashed) continue;
 						{
 							Vector3 sPos = FlightGlobals.ActiveVessel.vesselTransform.position;
 							Vector3 tPos = v.Current.vesselTransform.position;
