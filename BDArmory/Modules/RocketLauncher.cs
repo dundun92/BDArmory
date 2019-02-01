@@ -349,6 +349,8 @@ namespace BDArmory.Modules
 			{
 				part.stagingIconAlwaysShown = true;
 				this.part.stackIconGrouping = StackIconGrouping.SAME_TYPE;
+				ammoGauge = null;
+				emptyGauge = null;
 			}
 		}
 		IEnumerator DeployAnimRoutine(bool forward)
@@ -473,21 +475,14 @@ namespace BDArmory.Modules
 			{
 				if (vessel.isActiveVessel)
 				{
-					if (!BDArmorySettings.INFINITE_AMMO)
+					if (rocketsLeft > 0 && ammoGauge == null) //only redraw these if nulled from vessel switch
 					{
-						part.stackIcon.ClearInfoBoxes();
-						if (rocketsLeft > 0) //init UI gauges
-						{
-							ammoGauge = InitAmmoGauge(); //simply using InitXXXXGauge() will spawn endless gauges
-						}
-						if (rocketsLeft < 0)
-						{
-							emptyGauge = InitEmptyGauge();
-						}
+						UpdateAmmoMeter();
 					}
-					UpdateAmmoMeter();
-					UpdateEmptyAlert();
-					UpdateRocketScales();
+					if (rocketsLeft <= 0 && emptyGauge == null)
+					{
+						UpdateEmptyAlert();
+					}
 				}
 			}
 		}
@@ -846,7 +841,8 @@ namespace BDArmory.Modules
 				{
 					part.stackIcon.ClearInfoBoxes();
 					ammoGauge = null;
-					emptyGauge = InitEmptyGauge();
+					emptyGauge = null;
+					UpdateEmptyAlert();
 				}
 			}
 			else
@@ -871,6 +867,7 @@ namespace BDArmory.Modules
 				{
 					part.stackIcon.ClearInfoBoxes();
 					emptyGauge = null;
+					UpdateAmmoMeter();
 				}
 			}
 			else
