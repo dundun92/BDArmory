@@ -68,7 +68,7 @@ namespace BDArmory.Modules
             UI_FloatRange(minValue = 150f, maxValue = 6000, stepIncrement = 50f, scene = UI_Scene.All)]
         public float minAltitude = 500f;
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Min Altitude"),
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Turn Radius"),
             UI_FloatRange(minValue = 100f, maxValue = 5000, stepIncrement = 25f, scene = UI_Scene.All)]
         public float turnRadius = 500f;
 
@@ -178,7 +178,7 @@ namespace BDArmory.Modules
 
         //instantaneous turn radius and possible acceleration from lift
         //properties can be used so that other AI modules can read this for future maneuverability comparisons between craft
-        float turnRadius;
+        //float turnRadius;
 
         public float TurnRadius
         {
@@ -1493,7 +1493,7 @@ namespace BDArmory.Modules
             maxLiftAcceleration = Math.Min(maxLiftAcceleration, maxAllowedGForce * 9.81f);       //limit it to whichever is smaller, what we can provide or what we can handle
             maxLiftAcceleration = maxAllowedGForce * 9.81f;
 
-            if (maxLiftAcceleration > 0)
+            //if (maxLiftAcceleration > 0)
                // turnRadius = (float)vessel.Velocity().sqrMagnitude / maxLiftAcceleration;     //radius that we can turn in assuming constant velocity, assuming simple circular motion
         }
 
