@@ -82,7 +82,7 @@ namespace BDArmory.Modules
         public float maxSteer = 1;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Steer Damping"),
-            UI_FloatRange(minValue = 1f, maxValue = 8f, stepIncrement = 0.5f, scene = UI_Scene.All)]
+            UI_FloatRange(minValue = 1f, maxValue = 8f, stepIncrement = 0.1f, scene = UI_Scene.All)]
         public float steerDamping = 3;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Max Speed"),
@@ -104,6 +104,10 @@ namespace BDArmory.Modules
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Max G"),
             UI_FloatRange(minValue = 2f, maxValue = 45f, stepIncrement = 0.25f, scene = UI_Scene.All)]
         public float maxAllowedGForce = 10;
+
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Extend Multiplier", advancedTweakable = true),
+            UI_FloatRange(minValue = 0f, maxValue = 5f, stepIncrement = 0.1f, scene = UI_Scene.All)]
+        public float extendMulti = 1;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Max AoA"),
             UI_FloatRange(minValue = 0f, maxValue = 85f, stepIncrement = 2.5f, scene = UI_Scene.All)]
@@ -973,16 +977,16 @@ namespace BDArmory.Modules
                     extending = false;
                 }
 
-                float extendDistance = Mathf.Clamp(weaponManager.guardRange - 1800, 2500, 4000);
+                float extendDistance = Mathf.Clamp(weaponManager.guardRange - 1800, 2500, 4000) * extendMulti;
 
                 if (weaponManager.CurrentMissile && weaponManager.CurrentMissile.GetWeaponClass() == WeaponClasses.Bomb)
                 {
-                    extendDistance = 4500;
+                    extendDistance = 4500 * extendMulti;
                 }
 
                 if (targetVessel != null && !targetVessel.LandedOrSplashed)      //this is just asking for trouble at 800m
                 {
-                    extendDistance = 1600;
+                    extendDistance = 1600 * extendMulti;
                 }
 
                 Vector3 srfVector = Vector3.ProjectOnPlane(vessel.transform.position - tPosition, upDirection);
