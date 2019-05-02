@@ -68,6 +68,10 @@ namespace BDArmory.Modules
             UI_FloatRange(minValue = 150f, maxValue = 6000, stepIncrement = 50f, scene = UI_Scene.All)]
         public float minAltitude = 500f;
 
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Min Altitude"),
+            UI_FloatRange(minValue = 100f, maxValue = 5000, stepIncrement = 25f, scene = UI_Scene.All)]
+        public float turnRadius = 500f;
+
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Steer Factor"),
             UI_FloatRange(minValue = 0.1f, maxValue = 20f, stepIncrement = .1f, scene = UI_Scene.All)]
         public float steerMult = 6;
@@ -993,7 +997,7 @@ namespace BDArmory.Modules
                 float srfDist = srfVector.magnitude;
                 if (srfDist < extendDistance * extendMulti)
                 {
-                    Vector3 targetDirection = srfVector.normalized * extendDistance *extendMulti;
+                    Vector3 targetDirection = srfVector.normalized * extendDistance * extendMulti;
                     Vector3 target = vessel.transform.position + targetDirection;
                     target = GetTerrainSurfacePosition(target) + (vessel.upAxis * Mathf.Min(defaultAltitude, MissileGuidance.GetRaycastRadarAltitude(vesselTransform.position)));
                     target = FlightPosition(target, defaultAltitude);
@@ -1490,7 +1494,7 @@ namespace BDArmory.Modules
             maxLiftAcceleration = maxAllowedGForce * 9.81f;
 
             if (maxLiftAcceleration > 0)
-                turnRadius = (float)vessel.Velocity().sqrMagnitude / maxLiftAcceleration;     //radius that we can turn in assuming constant velocity, assuming simple circular motion
+               // turnRadius = (float)vessel.Velocity().sqrMagnitude / maxLiftAcceleration;     //radius that we can turn in assuming constant velocity, assuming simple circular motion
         }
 
         float MinAltitudeNeeded()         //min altitude adjusted for G limits; let's try _not_ to overcook dives and faceplant into the ground
