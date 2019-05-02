@@ -991,9 +991,9 @@ namespace BDArmory.Modules
 
                 Vector3 srfVector = Vector3.ProjectOnPlane(vessel.transform.position - tPosition, upDirection);
                 float srfDist = srfVector.magnitude;
-                if (srfDist < extendDistance)
+                if (srfDist < extendDistance * extendMulti)
                 {
-                    Vector3 targetDirection = srfVector.normalized * extendDistance;
+                    Vector3 targetDirection = srfVector.normalized * extendDistance *extendMulti;
                     Vector3 target = vessel.transform.position + targetDirection;
                     target = GetTerrainSurfacePosition(target) + (vessel.upAxis * Mathf.Min(defaultAltitude, MissileGuidance.GetRaycastRadarAltitude(vesselTransform.position)));
                     target = FlightPosition(target, defaultAltitude);
