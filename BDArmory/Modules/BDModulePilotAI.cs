@@ -60,17 +60,21 @@ namespace BDArmory.Modules
 
         Vector3 upDirection = Vector3.up;
 
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Advanced Tuning", advancedTweakable = true),
+            UI_Toggle(enabledText = "Enabled", disabledText = "Disabled", scene = UI_Scene.All),]
+        public bool AdvancedTuning = false;
+
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Default Alt."),
             UI_FloatRange(minValue = 500f, maxValue = 15000f, stepIncrement = 25f, scene = UI_Scene.All)]
         public float defaultAltitude = 1500;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Min Altitude"),
-            UI_FloatRange(minValue = 150f, maxValue = 6000, stepIncrement = 50f, scene = UI_Scene.All)]
+            UI_FloatRange(minValue = 0f, maxValue = 6000, stepIncrement = 50f, scene = UI_Scene.All)]
         public float minAltitude = 500f;
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Turn Radius"),
-            UI_FloatRange(minValue = 100f, maxValue = 5000, stepIncrement = 25f, scene = UI_Scene.All)]
-        public float turnRadius = 500f;
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Turn Radius Factor"),
+            UI_FloatRange(minValue = 0f, maxValue = 5f, stepIncrement = 0.1f, scene = UI_Scene.All)]
+        public float turnRadiusFactor = 1f;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Steer Factor"),
             UI_FloatRange(minValue = 0.1f, maxValue = 20f, stepIncrement = .1f, scene = UI_Scene.All)]
@@ -118,6 +122,10 @@ namespace BDArmory.Modules
         public float maxAllowedAoA = 35;
         float maxAllowedCosAoA;
         float lastAllowedAoA;
+
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Steer Aim FOV", advancedTweakable = true),
+            UI_FloatRange(minValue = 0f, maxValue = 360f, stepIncrement = 5f, scene = UI_Scene.All)]
+        public float SteerAimFOV = 20;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Orbit ", advancedTweakable = true),
             UI_Toggle(enabledText = "Starboard (CW)", disabledText = "Port (CCW)", scene = UI_Scene.All),]
@@ -178,7 +186,7 @@ namespace BDArmory.Modules
 
         //instantaneous turn radius and possible acceleration from lift
         //properties can be used so that other AI modules can read this for future maneuverability comparisons between craft
-        //float turnRadius;
+        float turnRadius;
 
         public float TurnRadius
         {
@@ -643,7 +651,7 @@ namespace BDArmory.Modules
                             target = MissileGuidance.GetAirToAirFireSolution(missile, v);
                         }
 
-                        if (angleToTarget < 20f)
+                        if (angleToTarget < SteerAimFOV)
                         {
                             steerMode = SteerModes.Aiming;
                         }
@@ -683,7 +691,7 @@ namespace BDArmory.Modules
                         target -= magnifier * leadOffset;
 
                         angleToTarget = Vector3.Angle(vesselTransform.up, target - vesselTransform.position);
-                        if (distanceToTarget < weaponManager.gunRange && angleToTarget < 20)
+                        if (distanceToTarget < weaponManager.gunRange && angleToTarget < SteerAimFOV)
                         {
                             steerMode = SteerModes.Aiming; //steer to aim
                         }
@@ -1493,8 +1501,8 @@ namespace BDArmory.Modules
             maxLiftAcceleration = Math.Min(maxLiftAcceleration, maxAllowedGForce * 9.81f);       //limit it to whichever is smaller, what we can provide or what we can handle
             maxLiftAcceleration = maxAllowedGForce * 9.81f;
 
-            //if (maxLiftAcceleration > 0)
-               // turnRadius = (float)vessel.Velocity().sqrMagnitude / maxLiftAcceleration;     //radius that we can turn in assuming constant velocity, assuming simple circular motion
+            if (maxLiftAcceleration > 0)
+                turnRadius = (float)vessel.Velocity().sqrMagnitude / maxLiftAcceleration;     //radius that we can turn in assuming constant velocity, assuming simple circular motion
         }
 
         float MinAltitudeNeeded()         //min altitude adjusted for G limits; let's try _not_ to overcook dives and faceplant into the ground
@@ -1519,7 +1527,7 @@ namespace BDArmory.Modules
                 diveAngleCorrection = 0;
             }
 
-            return Math.Max(minAltitude, 100 + turnRadius * diveAngleCorrection);
+            return Math.Max(minAltitude, turnRadiusFactor * 500 * diveAngleCorrection);
         }
 
         Vector3 DefaultAltPosition()
