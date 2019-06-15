@@ -388,7 +388,7 @@ namespace BDArmory.UI
                     }
                 }
             }
-
+            
             // see if there are flares decoying us:
             TargetSignatureData flareData = GetFlareTarget(ray, scanRadius, highpassThreshold, allAspect, finalScore);
 

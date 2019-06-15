@@ -91,6 +91,9 @@ namespace BDArmory.Modules
         public float heatThreshold = 150;
 
         [KSPField]
+        public static float CMResistanceFactor = 1;
+
+        [KSPField]
         public bool allAspect = false;
 
         [KSPField]
