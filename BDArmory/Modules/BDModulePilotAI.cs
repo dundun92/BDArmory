@@ -102,7 +102,7 @@ namespace BDArmory.Modules
         public float maxSpeed = 325;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Corner Speed"),
-            UI_FloatRange(minValue = 1f, maxValue = 450f, stepIncrement = 5f, scene = UI_Scene.All)]
+            UI_FloatRange(minValue = 0f, maxValue = 450f, stepIncrement = 5f, scene = UI_Scene.All)]
         public float cornerSpeed = 250f;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "TakeOff Speed"),
@@ -126,8 +126,8 @@ namespace BDArmory.Modules
         public float extendMulti = 1;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Missile Break Distance", advancedTweakable = true),
-            UI_FloatRange(minValue = 0f, maxValue = 10000f, stepIncrement = 10f, scene = UI_Scene.All)]
-        public float breakDist = 900;
+            UI_FloatRange(minValue = 0f, maxValue = 20000f, stepIncrement = 10f, scene = UI_Scene.All)]
+        public float breakDist = 2000;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Extend Vertical Factor", advancedTweakable = true),
             UI_FloatRange(minValue = -10f, maxValue = 10f, stepIncrement = .5f, scene = UI_Scene.All)]
@@ -1135,15 +1135,15 @@ namespace BDArmory.Modules
                 {
                     useAB = vessel.srfSpeed < minSpeed;
                     useBrakes = false;
-                    float targetSpeed = minSpeed;
+                    float targetSpeed = cornerSpeed;
                     if (weaponManager.isChaffing)
                     {
-                        targetSpeed = maxSpeed;
+                        targetSpeed = cornerSpeed;
                     }
                     AdjustThrottle(targetSpeed, false, useAB);
                 }
 
-                if ((weaponManager.isChaffing || weaponManager.isFlaring) && (weaponManager.incomingMissileDistance > 2000))
+                if ((weaponManager.isChaffing || weaponManager.isFlaring) && (weaponManager.incomingMissileDistance > breakDist))
                 {
                     debugString.Append($"Breaking from missile threat!");
                     debugString.Append(Environment.NewLine);
@@ -1224,7 +1224,7 @@ namespace BDArmory.Modules
                 else if (weaponManager.incomingMissileVessel)
                 {
                     float mSqrDist = Vector3.SqrMagnitude(weaponManager.incomingMissileVessel.transform.position - vesselTransform.position);
-                    if (mSqrDist < breakDist * breakDist) //900m
+                    if (mSqrDist < 810000) //900m
                     {
                         debugString.Append($"Missile about to impact! pull away!");
                         debugString.Append(Environment.NewLine);
