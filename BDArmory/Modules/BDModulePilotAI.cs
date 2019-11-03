@@ -1129,6 +1129,7 @@ namespace BDArmory.Modules
 
             collisionDetectionTicker += 2;
 
+           
             if (weaponManager)
             {
                 if (weaponManager.isFlaring)
