@@ -93,6 +93,10 @@ namespace BDArmory.Modules
             UI_FloatRange(minValue = 1f, maxValue = 8f, stepIncrement = 0.1f, scene = UI_Scene.All)]
         public float steerDamping = 3;
 
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Dynamic Damper"),
+            UI_Toggle(enabledText = "Enabled", disabledText = "Disabled", scene = UI_Scene.All),]
+        public bool dynamicDamper = false;
+
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "ThrottleFactor", advancedTweakable = true),
             UI_FloatRange(minValue = 1f, maxValue = 20f, stepIncrement = .5f, scene = UI_Scene.All)]
         public float throttleFactor = 2f;
