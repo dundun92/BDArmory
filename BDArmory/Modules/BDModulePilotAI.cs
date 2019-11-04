@@ -98,6 +98,14 @@ namespace BDArmory.Modules
             UI_FloatRange(minValue = 1f, maxValue = 8f, stepIncrement = 0.1f, scene = UI_Scene.All)]
         public float steerDamping = 3;
 
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Dynamic Damper ", advancedTweakable = true),
+            UI_Toggle(enabledText = "On", disabledText = "Off", scene = UI_Scene.All),]
+        public bool dynamicDamper = false;
+
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Dynamic Damping Factor", advancedTweakable = true),
+           UI_FloatRange(minValue = 1f, maxValue = 10f, stepIncrement = 0.1f, scene = UI_Scene.All)]
+        public float dynamicDampingFactor = 1;
+
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Corner Speed"),
             UI_FloatRange(minValue = 0f, maxValue = 650f, stepIncrement = 5f, scene = UI_Scene.All)]
         public float evasiveSpeed = 250f;
@@ -200,6 +208,8 @@ namespace BDArmory.Modules
         //Controller Integral
         float pitchIntegral;
         float yawIntegral;
+        //DynamicDamping
+        float damperFactor = 1;
 
         //instantaneous turn radius and possible acceleration from lift
         //properties can be used so that other AI modules can read this for future maneuverability comparisons between craft
@@ -1013,13 +1023,21 @@ namespace BDArmory.Modules
             {
                 rollTarget = Vector3.ProjectOnPlane(rollTarget, vesselTransform.up);
             }
-
+            if (dynamicDamper == true)
+            {
+                damperFactor = (float)Math.Pow(vessel.srfSpeed / evasiveSpeed, 1 / dynamicDampingFactor);
+            }
+            else
+            {
+                damperFactor = 1;
+            }
+            
             //v/q
             float dynamicAdjustment = Mathf.Clamp(16 * (float)(vessel.srfSpeed / vessel.dynamicPressurekPa), 0, 1.2f);
 
             float rollError = Misc.Misc.SignedAngle(currentRoll, rollTarget, vesselTransform.right);
             float steerRoll = (steerMult * 0.0015f * rollError);
-            float rollDamping = (.10f * steerDamping * -localAngVel.y);
+            float rollDamping = (.10f * (steerDamping * damperFactor) * -localAngVel.y);
             steerRoll -= rollDamping;
             steerRoll *= dynamicAdjustment;
 
@@ -1029,8 +1047,8 @@ namespace BDArmory.Modules
                 pitchError = pitchError * Mathf.Clamp01((21 - Mathf.Exp(Mathf.Abs(rollError) / 30)) / 20);
             }
 
-            float steerPitch = (0.015f * steerMult * pitchError) - (steerDamping * -localAngVel.x * (1 + steerKiAdjust));
-            float steerYaw = (0.005f * steerMult * yawError) - (steerDamping * 0.2f * -localAngVel.z * (1 + steerKiAdjust));
+            float steerPitch = (0.015f * steerMult * pitchError) - ((steerDamping * damperFactor) * -localAngVel.x * (1 + steerKiAdjust));
+            float steerYaw = (0.005f * steerMult * yawError) - ((steerDamping * damperFactor) * 0.2f * -localAngVel.z * (1 + steerKiAdjust));
 
             pitchIntegral += pitchError;
             yawIntegral += yawError;
