@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using BDArmory.Control;
 using BDArmory.Core;
 using BDArmory.Core.Extension;
@@ -18,6 +19,10 @@ namespace BDArmory.Modules
         public enum SteerModes { NormalFlight, Aiming }
 
         SteerModes steerMode = SteerModes.NormalFlight;
+
+        public enum FightingModes { Energy, Angles }
+
+        FightingModes fightingMode = FightingModes.Angles;
 
         bool belowMinAltitude;
         bool extending;
@@ -60,21 +65,21 @@ namespace BDArmory.Modules
 
         Vector3 upDirection = Vector3.up;
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "[IGNORE]", advancedTweakable = true),
-            UI_Toggle(enabledText = "Enabled", disabledText = "Disabled", scene = UI_Scene.All),]
-        public bool FightingMode = false;
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Fighting Tactics ", advancedTweakable = true),
+            UI_Toggle(enabledText = "Angles", disabledText = "Energy", scene = UI_Scene.All),]
+        public bool isAngles = true;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Default Alt."),
             UI_FloatRange(minValue = 500f, maxValue = 15000f, stepIncrement = 25f, scene = UI_Scene.All)]
         public float defaultAltitude = 1500;
 
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Turn Radius"),
+            UI_FloatRange(minValue = 0f, maxValue = 5000f, stepIncrement = 25f, scene = UI_Scene.All)]
+        public float cornerRadius = 500f;
+
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Min Altitude"),
             UI_FloatRange(minValue = 0f, maxValue = 6000, stepIncrement = 50f, scene = UI_Scene.All)]
-        public float minAltitude = 500f;
-
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Turn Radius Factor"),
-            UI_FloatRange(minValue = 0f, maxValue = 5f, stepIncrement = 0.1f, scene = UI_Scene.All)]
-        public float turnRadiusFactor = 1f;
+        public float minAltitude = 150f;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Steer Factor"),
             UI_FloatRange(minValue = 0.1f, maxValue = 20f, stepIncrement = .1f, scene = UI_Scene.All)]
@@ -93,21 +98,21 @@ namespace BDArmory.Modules
             UI_FloatRange(minValue = 1f, maxValue = 8f, stepIncrement = 0.1f, scene = UI_Scene.All)]
         public float steerDamping = 3;
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Dynamic Damper"),
-            UI_Toggle(enabledText = "Enabled", disabledText = "Disabled", scene = UI_Scene.All),]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Dynamic Damper ", advancedTweakable = true),
+            UI_Toggle(enabledText = "On", disabledText = "Off", scene = UI_Scene.All),]
         public bool dynamicDamper = false;
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "ThrottleFactor", advancedTweakable = true),
-            UI_FloatRange(minValue = 1f, maxValue = 20f, stepIncrement = .5f, scene = UI_Scene.All)]
-        public float throttleFactor = 2f;
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Dynamic Damping Factor", advancedTweakable = true),
+           UI_FloatRange(minValue = 1f, maxValue = 10f, stepIncrement = 0.1f, scene = UI_Scene.All)]
+        public float dynamicDampingFactor = 1;
+
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Corner Speed"),
+            UI_FloatRange(minValue = 0f, maxValue = 650f, stepIncrement = 5f, scene = UI_Scene.All)]
+        public float evasiveSpeed = 250f;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Max Speed"),
             UI_FloatRange(minValue = 20f, maxValue = 800f, stepIncrement = 1.0f, scene = UI_Scene.All)]
         public float maxSpeed = 325;
-
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Corner Speed"),
-            UI_FloatRange(minValue = 0f, maxValue = 450f, stepIncrement = 5f, scene = UI_Scene.All)]
-        public float cornerSpeed = 250f;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "TakeOff Speed"),
             UI_FloatRange(minValue = 10f, maxValue = 200f, stepIncrement = 1.0f, scene = UI_Scene.All)]
@@ -116,30 +121,23 @@ namespace BDArmory.Modules
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "MinCombatSpeed"),
             UI_FloatRange(minValue = 20f, maxValue = 200, stepIncrement = 1.0f, scene = UI_Scene.All)]
         public float minSpeed = 60f;
+        float minSpeedAllowed;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Idle Speed"),
             UI_FloatRange(minValue = 10f, maxValue = 200f, stepIncrement = 1.0f, scene = UI_Scene.All)]
         public float idleSpeed = 120f;
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Max G"),
-            UI_FloatRange(minValue = 2f, maxValue = 45f, stepIncrement = 0.25f, scene = UI_Scene.All)]
-        public float maxAllowedGForce = 10;
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Missile Evasion Distance"),
+            UI_FloatRange(minValue = 0f, maxValue = 10000f, stepIncrement = 10f, scene = UI_Scene.All)]
+        public float evasionDistance = 2000;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Extend Multiplier", advancedTweakable = true),
             UI_FloatRange(minValue = 0f, maxValue = 5f, stepIncrement = 0.1f, scene = UI_Scene.All)]
         public float extendMulti = 1;
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Missile Break Distance", advancedTweakable = true),
-            UI_FloatRange(minValue = 0f, maxValue = 20000f, stepIncrement = 10f, scene = UI_Scene.All)]
-        public float breakDist = 2000;
-
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Extend Vertical Factor", advancedTweakable = true),
-            UI_FloatRange(minValue = -10f, maxValue = 10f, stepIncrement = .5f, scene = UI_Scene.All)]
-        public float extendVerticalFactor = 0f;
-
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Speed Reduction Factor", advancedTweakable = true),
-            UI_FloatRange(minValue = 0f, maxValue = 10f, stepIncrement = .5f, scene = UI_Scene.All)]
-        public float speedReductionFactor = 1.25f;
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Max G"),
+            UI_FloatRange(minValue = 2f, maxValue = 45f, stepIncrement = 0.25f, scene = UI_Scene.All)]
+        public float maxAllowedGForce = 10;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Max AoA"),
             UI_FloatRange(minValue = 0f, maxValue = 85f, stepIncrement = 2.5f, scene = UI_Scene.All)]
@@ -147,9 +145,9 @@ namespace BDArmory.Modules
         float maxAllowedCosAoA;
         float lastAllowedAoA;
 
-        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Steer Aim FOV", advancedTweakable = true),
-            UI_FloatRange(minValue = 0f, maxValue = 360f, stepIncrement = 5f, scene = UI_Scene.All)]
-        public float SteerAimFOV = 20;
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Extensions "),
+            UI_Toggle(enabledText = "Enabled", disabledText = "Disabled", scene = UI_Scene.All),]
+        public bool canExtend = true;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Orbit ", advancedTweakable = true),
             UI_Toggle(enabledText = "Starboard (CW)", disabledText = "Port (CCW)", scene = UI_Scene.All),]
@@ -163,16 +161,17 @@ namespace BDArmory.Modules
         Dictionary<string, float> altMaxValues = new Dictionary<string, float>
         {
             { nameof(defaultAltitude), 100000f },
-            { nameof(minAltitude), 30000f },
-            { nameof(cornerSpeed), 2000f },
-            { nameof(turnRadiusFactor), 25f },
+            { nameof(cornerRadius), 50000f },
+            { nameof(minAltitude), 30000f },      
             { nameof(steerMult), 200f },
             { nameof(steerKiAdjust), 20f },
             { nameof(steerDamping), 100f },
+            { nameof(evasiveSpeed), 2000f },
             { nameof(maxSpeed), 3000f },
             { nameof(takeOffSpeed), 2000f },
             { nameof(minSpeed), 2000f },
             { nameof(idleSpeed), 3000f },
+            { nameof(extendMulti), 200f },
             { nameof(maxAllowedGForce), 1000f },
             { nameof(maxAllowedAoA), 180f },
         };
@@ -209,6 +208,8 @@ namespace BDArmory.Modules
         //Controller Integral
         float pitchIntegral;
         float yawIntegral;
+        //DynamicDamping
+        float damperFactor = 1;
 
         //instantaneous turn radius and possible acceleration from lift
         //properties can be used so that other AI modules can read this for future maneuverability comparisons between craft
@@ -255,6 +256,37 @@ namespace BDArmory.Modules
         Vector3d commandHeading;
 
         float finalMaxSteer = 1;
+
+        #region RMB info in editor
+
+        // <color={XKCDColors.HexFormat.Lime}>Yes</color>
+        public override string GetInfo()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("<b>Available settings</b>:");
+            sb.AppendLine($"<color={XKCDColors.HexFormat.Cyan}>- Default Alt.</color> - altitude to fly at when cruising/idle");
+            sb.AppendLine($"<color={XKCDColors.HexFormat.Cyan}>- Min Altitude</color> - below this altitude AI will prioritize gaining altitude over combat");
+            sb.AppendLine($"<color={XKCDColors.HexFormat.Cyan}>- Steer Factor</color> - higher will make the AI apply more control input for the same desired rotation");
+            sb.AppendLine($"<color={XKCDColors.HexFormat.Cyan}>- Steer Ki</color> - higher will make the AI apply control trim faster");
+            sb.AppendLine($"<color={XKCDColors.HexFormat.Cyan}>- Steer Limiter</color> - limit AI from applying full control input");
+            sb.AppendLine($"<color={XKCDColors.HexFormat.Cyan}>- Steer Damping</color> - higher will make the AI apply more control input when it wants to stop rotation");
+            sb.AppendLine($"<color={XKCDColors.HexFormat.Cyan}>- Max Speed</color> - AI will not fly faster than this");
+            sb.AppendLine($"<color={XKCDColors.HexFormat.Cyan}>- TakeOff Speed</color> - speed at which to start pitching up when taking off");
+            sb.AppendLine($"<color={XKCDColors.HexFormat.Cyan}>- MinCombat Speed</color> - AI will prioritize regaining speed over combat below this");
+            sb.AppendLine($"<color={XKCDColors.HexFormat.Cyan}>- Idle Speed</color> - Cruising speed when not in combat");
+            sb.AppendLine($"<color={XKCDColors.HexFormat.Cyan}>- Max G</color> - AI will try not to perform maneuvers at higher G than this");
+            sb.AppendLine($"<color={XKCDColors.HexFormat.Cyan}>- Max AoA</color> - AI will try not to exceed this angle of attack");
+            if (GameSettings.ADVANCED_TWEAKABLES)
+            {
+                sb.AppendLine($"<color={XKCDColors.HexFormat.Cyan}>- Orbit</color> - Which direction to orbit when idling over a location");
+                sb.AppendLine($"<color={XKCDColors.HexFormat.Cyan}>- Unclamp tuning</color> - Increases variable limits, no direct effect on behaviour");
+            }
+            sb.AppendLine($"<color={XKCDColors.HexFormat.Cyan}>- Standby Mode</color> - AI will not take off until an enemy is detected");
+
+            return sb.ToString();
+        }
+
+        #endregion RMB info in editor
 
         protected override void Start()
         {
@@ -354,6 +386,16 @@ namespace BDArmory.Modules
             steerMode = SteerModes.NormalFlight;
             useVelRollTarget = false;
 
+            
+            if (isAngles == true)
+            {
+                fightingMode = FightingModes.Angles;         
+            }
+            else
+            {
+                fightingMode = FightingModes.Energy; //regain energy if in NormalFlight, and airspeed is under avg of CornerSpeed and minSpeed
+            }
+
             if (vessel.LandedOrSplashed && standbyMode && weaponManager && (BDATargetManager.GetClosestTarget(this.weaponManager) == null || BDArmorySettings.PEACE_MODE)) //TheDog: replaced querying of targetdatabase with actual check if a target can be detected
             {
                 //s.mainThrottle = 0;
@@ -370,12 +412,25 @@ namespace BDArmory.Modules
             debugString.Append($"minAltNeeded: {minAltNeeded}");
             debugString.Append(Environment.NewLine);
 
+            if ((fightingMode == FightingModes.Angles) || (steerMode == SteerModes.Aiming))
+            {
+                minSpeedAllowed = minSpeed;
+            }
+            else if ((fightingMode == FightingModes.Energy) && (steerMode == SteerModes.NormalFlight))
+            {
+                minSpeedAllowed = (evasiveSpeed + minSpeed) / 2;
+            }
+            else
+            {
+                minSpeedAllowed = evasiveSpeed;
+            }
+            
             if (MissileGuidance.GetRadarAltitude(vessel) < minAltNeeded)
             {
                 belowMinAltitude = true;
             }
 
-            if (vessel.srfSpeed < minSpeed)
+            if (vessel.srfSpeed < minSpeedAllowed) 
             {
                 regainEnergy = true;
             }
@@ -654,6 +709,7 @@ namespace BDArmory.Modules
             float distanceToTarget = vectorToTarget.magnitude;
             float planarDistanceToTarget = Vector3.ProjectOnPlane(vectorToTarget, upDirection).magnitude;
             float angleToTarget = Vector3.Angle(target - vesselTransform.position, vesselTransform.up);
+           
             if (weaponManager)
             {
                 missile = weaponManager.CurrentMissile;
@@ -677,7 +733,7 @@ namespace BDArmory.Modules
                             target = MissileGuidance.GetAirToAirFireSolution(missile, v);
                         }
 
-                        if (angleToTarget < SteerAimFOV)
+                        if (angleToTarget < 20f)
                         {
                             steerMode = SteerModes.Aiming;
                         }
@@ -717,7 +773,7 @@ namespace BDArmory.Modules
                         target -= magnifier * leadOffset;
 
                         angleToTarget = Vector3.Angle(vesselTransform.up, target - vesselTransform.position);
-                        if (distanceToTarget < weaponManager.gunRange && angleToTarget < SteerAimFOV)
+                        if (distanceToTarget < weaponManager.gunRange && angleToTarget < 20)
                         {
                             steerMode = SteerModes.Aiming; //steer to aim
                         }
@@ -778,23 +834,14 @@ namespace BDArmory.Modules
                 finalMaxSpeed = Mathf.Max((distanceToTarget - 100) / 8, 0) + (float)v.srfSpeed;
                 finalMaxSpeed = Mathf.Max(finalMaxSpeed, minSpeed + 25f);
             }
-            if (FightingMode == true);
-            {
-                AdjustThrottle(finalMaxSpeed, true);
-            }
-            if (FightingMode == false);
-            {
-                AdjustThrottle(cornerSpeed, false);
-            }
-
-
+            AdjustThrottle(finalMaxSpeed, true);
 
             if ((targetDot < 0 && vessel.srfSpeed > finalMaxSpeed)
                 && distanceToTarget < 300 && vessel.srfSpeed < v.srfSpeed * 1.25f && Vector3.Dot(vessel.Velocity(), v.Velocity()) > 0) //distance is less than 800m
             {
                 debugString.Append($"Enemy on tail. Braking!");
                 debugString.Append(Environment.NewLine);
-                AdjustThrottle(minSpeed, true);
+                AdjustThrottle(evasiveSpeed, true);
             }
             if (missile != null
                 && targetDot > 0
@@ -901,7 +948,7 @@ namespace BDArmory.Modules
             //slow down for tighter turns
             float velAngleToTarget = Vector3.Angle(targetPosition - vesselTransform.position, vessel.Velocity());
             float normVelAngleToTarget = Mathf.Clamp(velAngleToTarget, 0, 90) / 90;
-            //float speedReductionFactor = 1.25f;
+            float speedReductionFactor = 1.25f;
             float finalSpeed = Mathf.Min(speedController.targetSpeed, Mathf.Clamp(maxSpeed - (speedReductionFactor * normVelAngleToTarget), idleSpeed, maxSpeed));
             debugString.Append($"Final Target Speed: {finalSpeed}");
             debugString.Append(Environment.NewLine);
@@ -976,13 +1023,21 @@ namespace BDArmory.Modules
             {
                 rollTarget = Vector3.ProjectOnPlane(rollTarget, vesselTransform.up);
             }
-
+            if (dynamicDamper == true)
+            {
+                damperFactor = (float)Math.Pow(vessel.srfSpeed / evasiveSpeed, 1 / dynamicDampingFactor);
+            }
+            else
+            {
+                damperFactor = 1;
+            }
+            
             //v/q
             float dynamicAdjustment = Mathf.Clamp(16 * (float)(vessel.srfSpeed / vessel.dynamicPressurekPa), 0, 1.2f);
 
             float rollError = Misc.Misc.SignedAngle(currentRoll, rollTarget, vesselTransform.right);
             float steerRoll = (steerMult * 0.0015f * rollError);
-            float rollDamping = (.10f * steerDamping * -localAngVel.y);
+            float rollDamping = (.10f * (steerDamping * damperFactor) * -localAngVel.y);
             steerRoll -= rollDamping;
             steerRoll *= dynamicAdjustment;
 
@@ -992,8 +1047,8 @@ namespace BDArmory.Modules
                 pitchError = pitchError * Mathf.Clamp01((21 - Mathf.Exp(Mathf.Abs(rollError) / 30)) / 20);
             }
 
-            float steerPitch = (0.015f * steerMult * pitchError) - (steerDamping * -localAngVel.x * (1 + steerKiAdjust));
-            float steerYaw = (0.005f * steerMult * yawError) - (steerDamping * 0.2f * -localAngVel.z * (1 + steerKiAdjust));
+            float steerPitch = (0.015f * steerMult * pitchError) - ((steerDamping * damperFactor) * -localAngVel.x * (1 + steerKiAdjust));
+            float steerYaw = (0.005f * steerMult * yawError) - ((steerDamping * damperFactor) * 0.2f * -localAngVel.z * (1 + steerKiAdjust));
 
             pitchIntegral += pitchError;
             yawIntegral += yawError;
@@ -1024,28 +1079,36 @@ namespace BDArmory.Modules
                     extending = false;
                 }
 
-                float extendDistance = Mathf.Clamp(weaponManager.guardRange - 1800, 2500, 4000) * extendMulti;
+                float extendDistance;
+
+                if (canExtend == false)
+                {
+                    extendDistance = 0;
+                }
+                else
+                {
+                    extendDistance = Mathf.Clamp(weaponManager.guardRange - 1800, 2500, 4000) * extendMulti;
+                }
+
 
                 if (weaponManager.CurrentMissile && weaponManager.CurrentMissile.GetWeaponClass() == WeaponClasses.Bomb)
                 {
-                    extendDistance = 4500 * extendMulti;
+                    extendDistance = 4500;
                 }
 
                 if (targetVessel != null && !targetVessel.LandedOrSplashed)      //this is just asking for trouble at 800m
                 {
-                    extendDistance = 1600 * extendMulti;
+                    extendDistance = 1600;
                 }
 
                 Vector3 srfVector = Vector3.ProjectOnPlane(vessel.transform.position - tPosition, upDirection);
                 float srfDist = srfVector.magnitude;
-                if (srfDist < extendDistance * extendMulti)
+                if (srfDist < extendDistance)
                 {
-                    Vector3 targetDirection = srfVector.normalized * extendDistance * extendMulti;
+                    Vector3 targetDirection = srfVector.normalized * extendDistance;
                     Vector3 target = vessel.transform.position + targetDirection;
-                    float extendAltitude;
-                    extendAltitude = MissileGuidance.GetRadarAltitude(vessel) + (500 * extendVerticalFactor);
                     target = GetTerrainSurfacePosition(target) + (vessel.upAxis * Mathf.Min(defaultAltitude, MissileGuidance.GetRaycastRadarAltitude(vesselTransform.position)));
-                    target = FlightPosition(target, extendAltitude);
+                    target = FlightPosition(target, defaultAltitude);
                     if (regainEnergy)
                     {
                         RegainEnergy(s, target - vesselTransform.position);
@@ -1114,7 +1177,6 @@ namespace BDArmory.Modules
             speedController.targetSpeed = targetSpeed;
             speedController.useBrakes = useBrakes;
             speedController.allowAfterburner = allowAfterburner;
-            speedController.throttleFactor = throttleFactor;
         }
 
         Vector3 threatRelativePosition;
@@ -1133,22 +1195,21 @@ namespace BDArmory.Modules
 
             collisionDetectionTicker += 2;
 
-           
             if (weaponManager)
             {
                 if (weaponManager.isFlaring)
                 {
                     useAB = vessel.srfSpeed < minSpeed;
                     useBrakes = false;
-                    float targetSpeed = cornerSpeed;
+                    float targetSpeed = evasiveSpeed;
                     if (weaponManager.isChaffing)
                     {
-                        targetSpeed = cornerSpeed;
+                        targetSpeed = maxSpeed;
                     }
                     AdjustThrottle(targetSpeed, false, useAB);
                 }
 
-                if ((weaponManager.isChaffing || weaponManager.isFlaring) && (weaponManager.incomingMissileDistance > breakDist))
+                if ((weaponManager.isChaffing || weaponManager.isFlaring) && (weaponManager.incomingMissileDistance > evasionDistance))
                 {
                     debugString.Append($"Breaking from missile threat!");
                     debugString.Append(Environment.NewLine);
@@ -1185,7 +1246,7 @@ namespace BDArmory.Modules
                             {
                                 debugString.Append($" from behind moderate distance; engaging aggressvie barrel roll and braking");
                                 steerMode = SteerModes.Aiming;
-                                AdjustThrottle(cornerSpeed, true, false);
+                                AdjustThrottle(evasiveSpeed, true, false);
                             }
                         }
                         else
@@ -1550,6 +1611,8 @@ namespace BDArmory.Modules
             //actual altitude needed will be radius * (1 - cos(theta)), where theta is the angle of the arc from dive entry to the turning circle to the bottom
             //we can calculate that from the velocity vector mag dotted with the up vector
 
+            float speedCorrection = (float)Math.Sqrt((float)vessel.srfSpeed) / (float)Math.Sqrt(evasiveSpeed);
+
             float diveAngleCorrection = -Vector3.Dot(vessel.Velocity() / vessel.srfSpeed, vessel.upAxis); //normalize the vector and dot it with upAxis
                                                                                                           //this gives us sin(theta)
             if (diveAngleCorrection > 0)         //we're headed downwards
@@ -1566,7 +1629,7 @@ namespace BDArmory.Modules
                 diveAngleCorrection = 0;
             }
 
-            return Math.Max(minAltitude, turnRadiusFactor * 500 * diveAngleCorrection);
+            return minAltitude + (cornerRadius * diveAngleCorrection * speedCorrection);
         }
 
         Vector3 DefaultAltPosition()

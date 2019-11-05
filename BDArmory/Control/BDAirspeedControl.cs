@@ -12,8 +12,8 @@ namespace BDArmory.Control
         public bool useBrakes = true;
         public bool allowAfterburner = true;
 
-       // [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "ThrottleFactor", advancedTweakable = true),
-        	//UI_FloatRange(minValue = 1f, maxValue = 20f, stepIncrement = .5f, scene = UI_Scene.All)]
+        //[KSPField(isPersistant = false, guiActive = true, guiActiveEditor = false, guiName = "ThrottleFactor"),
+        //	UI_FloatRange(minValue = 1f, maxValue = 20f, stepIncrement = .5f, scene = UI_Scene.All)]
         public float throttleFactor = 2f;
 
         public Vessel vessel;
