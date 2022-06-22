@@ -1,16 +1,23 @@
 using System;
-using BDArmory.Core;
-using BDArmory.Core.Extension;
-using BDArmory.Misc;
-using BDArmory.Modules;
 using UnityEngine;
+
+using BDArmory.Extensions;
+using BDArmory.Settings;
+using BDArmory.Utils;
+using BDArmory.Weapons.Missiles;
 
 namespace BDArmory.Guidances
 {
     public class MissileGuidance
     {
-        public static Vector3 GetAirToGroundTarget(Vector3 targetPosition, Vessel missileVessel, float descentRatio)
+        public static Vector3 GetAirToGroundTarget(Vector3 targetPosition, Vector3 targetVelocity, Vessel missileVessel, float descentRatio, float minSpeed = 200)
         {
+            // Incorporate lead for target velocity
+            Vector3 currVel = Mathf.Max((float)missileVessel.srfSpeed, minSpeed) * missileVessel.Velocity().normalized;
+            float targetDistance = Vector3.Distance(targetPosition, missileVessel.transform.position);
+            float leadTime = Mathf.Clamp((float)(1 / ((targetVelocity - currVel).magnitude / targetDistance)), 0f, 8f);
+            targetPosition += targetVelocity * leadTime;
+
             Vector3 upDirection = VectorUtils.GetUpDirection(missileVessel.CoM);
             //-FlightGlobals.getGeeForceAtPosition(targetPosition).normalized;
             Vector3 surfacePos = missileVessel.transform.position +
@@ -32,11 +39,10 @@ namespace BDArmory.Guidances
                 (distanceToTarget - ((float)missileVessel.srfSpeed * descentRatio)) * 0.22f, 0,
                 (float)missileVessel.altitude);
 
-            //Debug.Log("AGM altitudeClamp =" + altitudeClamp);
-
+            //Debug.Log("[BDArmory.MissileGuidance]: AGM altitudeClamp =" + altitudeClamp);
             Vector3 finalTarget = targetPosition + (altitudeClamp * upDirection.normalized);
 
-            //Debug.Log("Using agm trajectory. " + Time.time);
+            //Debug.Log("[BDArmory.MissileGuidance]: Using agm trajectory. " + Time.time);
 
             return finalTarget;
         }
@@ -145,36 +151,21 @@ namespace BDArmory.Guidances
         {
             float targetDistance = Vector3.Distance(targetPosition, missileVessel.CoM);
 
-            float leadTime = 0;
-
             //Basic lead time calculation
             Vector3 currVel = ((float)missileVessel.srfSpeed * missileVessel.Velocity().normalized);
             timeToImpact = (float)(1 / ((targetVelocity - currVel).magnitude / targetDistance));
-            leadTime = Mathf.Clamp(timeToImpact, 0f, 8f);
 
-            if (timeToImpact < 1)
-            {
-                float accuTimeToImpact = 0;
-                if (CalculateAccurateTimeToImpact(targetDistance, targetVelocity, missileVessel,
-                    missileVessel.acceleration_immediate, targetAcceleration, out accuTimeToImpact))
-                {
-                    timeToImpact = accuTimeToImpact;
-                    return targetPosition + (targetVelocity * accuTimeToImpact) +
-                           targetAcceleration * 0.5f * Mathf.Pow(accuTimeToImpact, 2);
-                }
-
-                return targetPosition + (targetVelocity * leadTime);
-            }
-            if (timeToImpact < 10)
-            {
-                return targetPosition + (targetVelocity * leadTime);
-            }
-
-            return targetPosition;
+            // Calculate time to CPA to determine target position
+            float timeToCPA = missileVessel.ClosestTimeToCPA(targetPosition, targetVelocity, targetAcceleration, 16f);
+            timeToImpact = (timeToCPA < 16f) ? timeToCPA : timeToImpact;
+            // Ease in velocity from 16s to 8s, ease in acceleration from 8s to 2s using the logistic function to give smooth adjustments to target point.
+            float easeAccel = Mathf.Clamp01(1.1f / (1f + Mathf.Exp((timeToCPA - 5f))) - 0.05f);
+            float easeVel = Mathf.Clamp01(2f - timeToCPA / 8f);
+            return AIUtils.PredictPosition(targetPosition, targetVelocity * easeVel, targetAcceleration * easeAccel, timeToCPA + TimeWarp.fixedDeltaTime); // Compensate for the off-by-one frame issue.
         }
 
         /// <summary>
-        /// Calculate a very accurate time to impact, use the out timeToimpact property if the method returned true
+        /// Calculate a very accurate time to impact, use the out timeToimpact property if the method returned true. DEPRECIATED, use TimeToCPA.
         /// </summary>
         /// <param name="targetVelocity"></param>
         /// <param name="missileVessel"></param>
@@ -201,7 +192,7 @@ namespace BDArmory.Guidances
 
                 if (currentDistanceSqr <= previousDistanceSqr)
                 {
-                    Debug.Log("[BDArmory]: Accurate time to impact failed");
+                    Debug.Log("[BDArmory.MissileGuidance]: Accurate time to impact failed");
 
                     timeToImpact = 0;
                     return false;
@@ -214,6 +205,7 @@ namespace BDArmory.Guidances
             timeToImpact = Time.fixedDeltaTime * iterations;
             return true;
         }
+
 
         public static Vector3 GetAirToAirFireSolution(MissileBase missile, Vessel targetVessel)
         {
@@ -290,7 +282,7 @@ namespace BDArmory.Guidances
                 Ray terrainRay = new Ray(missileVessel.transform.position, tRayDirection);
                 RaycastHit rayHit;
 
-                if (Physics.Raycast(terrainRay, out rayHit, 8000, (1 << 15) | (1 << 17)))
+                if (Physics.Raycast(terrainRay, out rayHit, 8000, (int)(LayerMasks.Scenery | LayerMasks.EVA))) // Why EVA?
                 {
                     float detectedAlt =
                         Vector3.Project(rayHit.point - missileVessel.transform.position, upDirection).magnitude;
@@ -374,6 +366,7 @@ namespace BDArmory.Guidances
             Vector3 previousTorque, float maxTorque, float maxAoA, FloatCurve liftCurve, FloatCurve dragCurve)
         {
             Rigidbody rb = ml.part.rb;
+            if (rb == null || rb.mass == 0) return Vector3.zero;
             double airDensity = ml.vessel.atmDensity;
             double airSpeed = ml.vessel.srfSpeed;
             Vector3d velocity = ml.vessel.Velocity();
@@ -474,7 +467,7 @@ namespace BDArmory.Guidances
             }
 
             RaycastHit rayHit;
-            if (Physics.Raycast(ray, out rayHit, rayDistance, (1 << 15) | (1 << 17)))
+            if (Physics.Raycast(ray, out rayHit, rayDistance, (int)(LayerMasks.Scenery | LayerMasks.EVA))) // Why EVA?
             {
                 return rayHit.distance;
             }
