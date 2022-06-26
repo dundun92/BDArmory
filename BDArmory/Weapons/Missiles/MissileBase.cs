@@ -96,7 +96,7 @@ namespace BDArmory.Weapons.Missiles
         [KSPField]
         public float heatThreshold = 150;
 
-        [KSPField]
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Chaff Effect"), UI_FloatRange(minValue = 0f, maxValue = 1f, stepIncrement = 0.05f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]//Chaff Effectiveness
         public float chaffEffectivity = 1f;                            // Modifies  how the missile targeting is affected by chaff, 1 is fully affected (normal behavior), lower values mean less affected (0 is ignores chaff), higher values means more affected
 
         [KSPField]

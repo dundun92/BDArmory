@@ -65,7 +65,7 @@ namespace BDArmory.Radar
         internal static float rcsTotal;               // dito
 
         internal const float RCS_NORMALIZATION_FACTOR = 3.8f;       //IMPORTANT FOR RCS CALCULATION! DO NOT CHANGE! (sphere with 1m^2 cross section should have 1m^2 RCS)
-        internal const float RCS_MISSILES = 999f;                    //default rcs value for missiles if not configured in the part config
+        internal const float RCS_MISSILES = 0.1f;                    //default rcs value for missiles if not configured in the part config
         internal const float RWR_PING_RANGE_FACTOR = 2.0f;
         internal const float RADAR_IGNORE_DISTANCE_SQR = 100f;
         internal const float ACTIVE_MISSILE_PING_PERISTS_TIME = 0.2f;
