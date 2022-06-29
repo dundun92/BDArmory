@@ -7,9 +7,24 @@ Original Author [BahamutoD](https://github.com/BahamutoD)
 
 Original [Forum link](http://forum.kerbalspaceprogram.com/threads/85209-BDArmory)
 
-Current [Forum link](http://forum.kerbalspaceprogram.com/index.php?/topic/155014-13-bdarmory-continued-v0211-5282017-vessel-mover-camera-tools-bdmk22-destruction-effects-burn-together/)
+Current [Forum link](https://forum.kerbalspaceprogram.com/index.php?/topic/184167-17x-bdarmory-continued-v130-05012019/)
 
 Current Maintainers:
+- [DocNappers](https://github.com/BrettRyland)
+- [Josue](https://github.com/josuenos)
+- [SuicidalInsanity](https://github.com/SuicidalInsanity)
+- [Aubranium](https://github.com/agoodman) (Remote Orchestration)
+
+Contributors:
+- [Scott Manley](https://github.com/illectro)
+- [Stardust](https://github.com/Stardust-Rapture)
+- [Kurgan](https://github.com/TheKurgan)
+- [CeruleanEyes]()
+- [Fluffy]()
+- [Cl0by](https://github.com/Cl0by)
+- And all the previous maintainers.
+
+Previous Maintainers:
 - [PapaJoe](https://github.com/PapaJoesSoup)
 - [jrodrigv](https://github.com/jrodrigv)
 - [SpannerMonkey](https://github.com/SpannerMonkey)
