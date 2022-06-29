@@ -86,6 +86,10 @@ namespace BDArmory.Weapons.Missiles
          UI_FloatRange(minValue = 0f, maxValue = 1000f, stepIncrement = 50f, scene = UI_Scene.Editor)]
         public float MinSpeedGuidance = 200f;
 
+        [KSPField(isPersistant = true, guiActive = false, guiActiveEditor = true, guiName = "Missile Termination Speed"),//if missile is above this speed, it will not explode
+         UI_FloatRange(minValue = 0f, maxValue = 600f, stepIncrement = 10f, scene = UI_Scene.Editor)]
+        public float TerminationSpeed = 100f;
+
         [KSPField(isPersistant = true, guiActive = false, guiActiveEditor = true, guiName = "#LOC_BDArmory_ClearanceRadius", advancedTweakable = true),//Clearance radius
          UI_FloatRange(minValue = 0f, maxValue = 5f, stepIncrement = 0.05f, scene = UI_Scene.Editor)]
         public float clearanceRadius = 0.14f;
@@ -669,6 +673,8 @@ namespace BDArmory.Weapons.Missiles
             // if I'm getting closer to  my target avoid explosion
             if ((vessel.CoM - targetPosition).sqrMagnitude >
                 (vessel.CoM + (vessel.Velocity() * Time.fixedDeltaTime) - (targetPosition + (TargetVelocity * Time.fixedDeltaTime))).sqrMagnitude) return;
+
+            if (vessel.Velocity().magnitude > TerminationSpeed) return;
 
             if (MissileState != MissileStates.PostThrust) return;
 
