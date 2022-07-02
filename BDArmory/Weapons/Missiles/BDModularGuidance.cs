@@ -63,6 +63,9 @@ namespace BDArmory.Weapons.Missiles
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "#LOC_BDArmory_SteerLimiter"), UI_FloatRange(minValue = .1f, maxValue = 1f, stepIncrement = .05f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]//Steer Limiter
         public float MaxSteer = 1;
 
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Max G"), UI_FloatRange(minValue = 0f, maxValue = 120f, stepIncrement = 5f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]//G Limiter
+        public float MaxG = 40;
+
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "#LOC_BDArmory_StagesNumber"), UI_FloatRange(minValue = 1f, maxValue = 9f, stepIncrement = 1f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]//Stages Number
         public float StagesNumber = 1;
 
@@ -74,6 +77,9 @@ namespace BDArmory.Weapons.Missiles
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "#LOC_BDArmory_SteerFactor"), UI_FloatRange(minValue = 0.1f, maxValue = 20f, stepIncrement = .1f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]//Steer Factor
         public float SteerMult = 10;
+
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Porportional Navigation Constant"), UI_FloatRange(minValue = 0.1f, maxValue = 10f, stepIncrement = .1f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]//PNav Gain
+        public float PNGain = 3;
 
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "#LOC_BDArmory_RollCorrection"), UI_Toggle(controlEnabled = true, enabledText = "#LOC_BDArmory_RollCorrection_enabledText", disabledText = "#LOC_BDArmory_RollCorrection_disabledText", scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]//Roll Correction--Roll enabled--Roll disabled
         public bool RollCorrection = false;
@@ -623,6 +629,21 @@ namespace BDArmory.Weapons.Missiles
             return aamTarget;
         }
 
+        private Vector3 PNGuidance()
+        {
+            Vector3 PNTarget;
+            if (TargetAcquired)
+            {
+                PNTarget = MissileGuidance.GetPNTarget(TargetPosition, TargetVelocity, vessel, PNGain);
+                DrawDebugLine(vessel.CoM, TargetPosition, Color.green);
+            }
+            else
+            {
+                PNTarget = Vector3.zero;
+            }
+            return PNTarget;
+        }
+
         private Vector3 AGMGuidance()
         {
             if (TargetingMode != TargetingModes.Gps)
@@ -772,10 +793,12 @@ namespace BDArmory.Weapons.Missiles
                 }
 
                 Vector3 newTargetPosition = new Vector3();
+                Vector3 PNTarget = new Vector3();
                 switch (GuidanceIndex)
                 {
                     case 1:
                         newTargetPosition = AAMGuidance();
+                        PNTarget = PNGuidance();
                         break;
 
                     case 2:
@@ -795,13 +818,32 @@ namespace BDArmory.Weapons.Missiles
                 //Updating aero surfaces
                 if (TimeIndex > dropTime + 0.5f)
                 {
-                    _velocityTransform.rotation = Quaternion.LookRotation(vessel.Velocity(), -vessel.transform.forward);
-                    Vector3 targetDirection = _velocityTransform.InverseTransformPoint(newTargetPosition).normalized;
-                    targetDirection = Vector3.RotateTowards(Vector3.forward, targetDirection, 15 * Mathf.Deg2Rad, 0);
+                    float steerYaw;
+                    float steerPitch;
+                    if (GuidanceIndex == 1)
+                    {
+                        _velocityTransform.rotation = Quaternion.LookRotation(vessel.Velocity(), -vessel.transform.forward);
+                        Vector3 normalAccel = _velocityTransform.InverseTransformDirection(PNTarget);
+                        Vector3 localAngVel = vessel.angularVelocity;
+                        Vector3 localRotRate = _velocityTransform.InverseTransformDirection(vessel.acceleration) / (float)vessel.srfSpeed;
+                        Vector3 targetAngVel = normalAccel / (float)vessel.srfSpeed;
+                        float MaxRotRate = MaxG * (float)PhysicsGlobals.GravitationalAcceleration / (float)vessel.srfSpeed;
+                        targetAngVel -= new Vector3(localRotRate.x, localRotRate.y, 0);
 
-                    Vector3 localAngVel = vessel.angularVelocity;
-                    float steerYaw = SteerMult * targetDirection.x - SteerDamping * -localAngVel.z;
-                    float steerPitch = SteerMult * targetDirection.y - SteerDamping * -localAngVel.x;
+                        steerYaw = (SteerMult * Mathf.Clamp(targetAngVel.x, -MaxRotRate, MaxRotRate)) - (SteerDamping * -localAngVel.z);
+                        steerPitch = (SteerMult * Mathf.Clamp(targetAngVel.y, -MaxRotRate, MaxRotRate)) - (SteerDamping * -localAngVel.x);
+                    }
+
+                    else
+                    {
+                        _velocityTransform.rotation = Quaternion.LookRotation(vessel.Velocity(), -vessel.transform.forward);
+                        Vector3 targetDirection = _velocityTransform.InverseTransformPoint(newTargetPosition).normalized;
+                        targetDirection = Vector3.RotateTowards(Vector3.forward, targetDirection, 15 * Mathf.Deg2Rad, 0);
+
+                        Vector3 localAngVel = vessel.angularVelocity;
+                        steerYaw = SteerMult * targetDirection.x - SteerDamping * -localAngVel.z;
+                        steerPitch = SteerMult * targetDirection.y - SteerDamping * -localAngVel.x;
+                    }
 
                     s.yaw = Mathf.Clamp(steerYaw, -MaxSteer, MaxSteer);
                     s.pitch = Mathf.Clamp(steerPitch, -MaxSteer, MaxSteer);
@@ -812,6 +854,7 @@ namespace BDArmory.Weapons.Missiles
                         s.roll = Roll;
                     }
                 }
+
                 s.mainThrottle = Throttle;
 
                 CheckMiss();
