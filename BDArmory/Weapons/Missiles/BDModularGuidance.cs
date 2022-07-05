@@ -66,6 +66,9 @@ namespace BDArmory.Weapons.Missiles
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Max G"), UI_FloatRange(minValue = 0f, maxValue = 120f, stepIncrement = 5f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]//G Limiter
         public float MaxG = 40;
 
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Seeker Tracking Rate"), UI_FloatRange(minValue = 0f, maxValue = 120f, stepIncrement = 5f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]//G Limiter
+        public float LOSLimit = 30;
+
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "#LOC_BDArmory_StagesNumber"), UI_FloatRange(minValue = 1f, maxValue = 9f, stepIncrement = 1f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]//Stages Number
         public float StagesNumber = 1;
 
@@ -152,6 +155,16 @@ namespace BDArmory.Weapons.Missiles
                 case 4:
                     GuidanceMode = GuidanceModes.AGMBallistic;
                     GuidanceLabel = "Ballistic";
+                    break;
+
+                case 5:
+                    GuidanceMode = GuidanceModes.PN;
+                    GuidanceLabel = "Proportional Navigation";
+                    break;
+
+                case 6:
+                    GuidanceMode = GuidanceModes.APN;
+                    GuidanceLabel = "Augmented Porportional Navgation";
                     break;
             }
 
@@ -635,13 +648,26 @@ namespace BDArmory.Weapons.Missiles
             if (TargetAcquired)
             {
                 PNTarget = MissileGuidance.GetPNTarget(TargetPosition, TargetVelocity, vessel, PNGain);
-                DrawDebugLine(vessel.CoM, TargetPosition, Color.green);
             }
             else
             {
                 PNTarget = Vector3.zero;
             }
             return PNTarget;
+        }
+
+        private Vector3 APNGuidance()
+        {
+            Vector3 APNTarget;
+            if (TargetAcquired)
+            {
+                APNTarget = MissileGuidance.GetAPNTarget(TargetPosition, TargetVelocity, TargetAcceleration, vessel, PNGain);
+            }
+            else
+            {
+                APNTarget = Vector3.zero;
+            }
+            return APNTarget;
         }
 
         private Vector3 AGMGuidance()
@@ -798,7 +824,6 @@ namespace BDArmory.Weapons.Missiles
                 {
                     case 1:
                         newTargetPosition = AAMGuidance();
-                        PNTarget = PNGuidance();
                         break;
 
                     case 2:
@@ -812,15 +837,30 @@ namespace BDArmory.Weapons.Missiles
                     case 4:
                         newTargetPosition = BallisticGuidance();
                         break;
+
+                    case 5:
+                        newTargetPosition = AAMGuidance();
+                        PNTarget = PNGuidance();
+                        break;
+
+                    case 6:
+                        newTargetPosition = AAMGuidance();
+                        PNTarget = APNGuidance();
+                        break;
                 }
                 CheckMiss(newTargetPosition);
 
                 //Updating aero surfaces
+                if (TimeIndex < dropTime + 0.5f) // ensures the missile doesnt loose stability off the rail due to launching AC control inputs. TODO: Add G Bias, make 0.5s an adjustable value
+                {
+                    s.pitch = 0;
+                    s.yaw = 0;
+                }
                 if (TimeIndex > dropTime + 0.5f)
                 {
                     float steerYaw;
                     float steerPitch;
-                    if (GuidanceIndex == 1)
+                    if (GuidanceIndex == 5 || GuidanceIndex == 6)
                     {
                         _velocityTransform.rotation = Quaternion.LookRotation(vessel.Velocity(), -vessel.transform.forward);
                         Vector3 normalAccel = _velocityTransform.InverseTransformDirection(PNTarget);
@@ -1076,7 +1116,7 @@ namespace BDArmory.Weapons.Missiles
         public void SwitchGuidanceMode()
         {
             GuidanceIndex++;
-            if (GuidanceIndex > 4)
+            if (GuidanceIndex > 6)
             {
                 GuidanceIndex = 1;
             }
