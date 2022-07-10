@@ -853,6 +853,8 @@ namespace BDArmory.Weapons.Missiles
                 //Updating aero surfaces
                 if (TimeIndex < dropTime + 0.5f) // ensures the missile doesnt loose stability off the rail due to launching AC control inputs. TODO: Add G Bias, make 0.5s an adjustable value
                 {
+                    _velocityTransform.rotation = Quaternion.LookRotation(vessel.Velocity(), -vessel.transform.forward);
+                    Vector3 localRotRate = _velocityTransform.InverseTransformDirection(vessel.acceleration) / (float)vessel.srfSpeed;
                     s.pitch = 0;
                     s.yaw = 0;
                 }
@@ -865,13 +867,16 @@ namespace BDArmory.Weapons.Missiles
                         _velocityTransform.rotation = Quaternion.LookRotation(vessel.Velocity(), -vessel.transform.forward);
                         Vector3 normalAccel = _velocityTransform.InverseTransformDirection(PNTarget);
                         Vector3 localAngVel = vessel.angularVelocity;
-                        Vector3 localRotRate = _velocityTransform.InverseTransformDirection(vessel.acceleration) / (float)vessel.srfSpeed;
-                        Vector3 targetAngVel = normalAccel / (float)vessel.srfSpeed;
-                        float MaxRotRate = MaxG * (float)PhysicsGlobals.GravitationalAcceleration / (float)vessel.srfSpeed;
-                        targetAngVel -= new Vector3(localRotRate.x, localRotRate.y, 0);
+                        //Vector3 localRotRate = _velocityTransform.InverseTransformDirection(vessel.acceleration) / (float)vessel.srfSpeed;
+                        Vector3 localAccel = _velocityTransform.InverseTransformDirection(vessel.acceleration);
+                        //Vector3 targetAngVel = normalAccel / (float)vessel.srfSpeed;
+                        //float MaxRotRate = MaxG * (float)PhysicsGlobals.GravitationalAcceleration / (float)vessel.srfSpeed;
+                        float MaxAccel = MaxG * (float)PhysicsGlobals.GravitationalAcceleration;
+                        Vector3 targetAccel = normalAccel - new Vector3(localAccel.x, localAccel.y, 0);
+                        targetAccel /= MaxAccel;
 
-                        steerYaw = (SteerMult * Mathf.Clamp(targetAngVel.x, -MaxRotRate, MaxRotRate)) - (SteerDamping * -localAngVel.z);
-                        steerPitch = (SteerMult * Mathf.Clamp(targetAngVel.y, -MaxRotRate, MaxRotRate)) - (SteerDamping * -localAngVel.x);
+                        steerYaw = (SteerMult * Mathf.Clamp(targetAccel.x, -MaxAccel, MaxAccel)) - (SteerDamping * -localAngVel.z);
+                        steerPitch = (SteerMult * Mathf.Clamp(targetAccel.y, -MaxAccel, MaxAccel)) - (SteerDamping * -localAngVel.x);
                     }
 
                     else
