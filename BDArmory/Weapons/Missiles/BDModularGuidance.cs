@@ -84,12 +84,19 @@ namespace BDArmory.Weapons.Missiles
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "Porportional Navigation Constant"), UI_FloatRange(minValue = 0.1f, maxValue = 10f, stepIncrement = .1f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]//PNav Gain
         public float PNGain = 3;
 
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "English Bias"), UI_Toggle(controlEnabled = true, enabledText = "English Bias Enabled", disabledText = "English Bias Disabled", scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]
+        public bool englishBias = true;
+
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "#LOC_BDArmory_RollCorrection"), UI_Toggle(controlEnabled = true, enabledText = "#LOC_BDArmory_RollCorrection_enabledText", disabledText = "#LOC_BDArmory_RollCorrection_disabledText", scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]//Roll Correction--Roll enabled--Roll disabled
         public bool RollCorrection = false;
 
         [KSPField(isPersistant = true, guiActive = false, guiActiveEditor = true, guiName = "#LOC_BDArmory_TimeBetweenStages"),//Time Between Stages
          UI_FloatRange(minValue = 0f, maxValue = 5f, stepIncrement = 0.5f, scene = UI_Scene.Editor)]
         public float timeBetweenStages = 1f;
+
+        [KSPField(isPersistant = true, guiActive = false, guiActiveEditor = true, guiName = "Saftey Time"),//Time Before missile guidance, english bias period for APN
+         UI_FloatRange(minValue = 0f, maxValue = 5f, stepIncrement = 0.5f, scene = UI_Scene.Editor)]
+        public float safteyTime = 1f;
 
         [KSPField(isPersistant = true, guiActive = false, guiActiveEditor = true, guiName = "#LOC_BDArmory_MinSpeedGuidance"),//Min Speed before guidance
          UI_FloatRange(minValue = 0f, maxValue = 1000f, stepIncrement = 50f, scene = UI_Scene.Editor)]
@@ -857,12 +864,38 @@ namespace BDArmory.Weapons.Missiles
                 CheckMiss(newTargetPosition);
 
                 //Updating aero surfaces
-                if (TimeIndex < dropTime + 0.5f) // ensures the missile doesnt loose stability off the rail due to launching AC control inputs. TODO: Add G Bias, make 0.5s an adjustable value
+                if (TimeIndex < safteyTime) // ensures the missile doesnt loose stability off the rail due to launching AC control inputs. TODO: Add G Bias, make 0.5s an adjustable value
                 {
-                    s.pitch = 0;
-                    s.yaw = 0;
+                    float steerYaw;
+                    float steerPitch;
+                    if (TimeIndex < dropTime)
+                    {
+                        steerPitch = 0;
+                        steerYaw = 0;
+                    }
+                    else if (englishBias)
+                    {
+                        _velocityTransform.rotation = Quaternion.LookRotation(vessel.Velocity(), -vessel.transform.forward);
+                        Vector3 localAccel = _velocityTransform.InverseTransformDirection(vessel.acceleration);
+                        Vector3 localAngVel = vessel.angularVelocity;
+                        Vector3 biasDirection = _velocityTransform.InverseTransformPoint(newTargetPosition).normalized;
+                        Vector3 biasAcceleration = new Vector3(Mathf.Atan(biasDirection.x),Mathf.Atan(biasDirection.y), 0);
+                        biasAcceleration *= 0.45f * Mathf.Rad2Deg * (float)PhysicsGlobals.GravitationalAcceleration;
+                        Vector3 targetAccel = biasAcceleration - localAccel;
+                        float MaxAccel = MaxG * (float)PhysicsGlobals.GravitationalAcceleration;
+                        targetAccel /= MaxAccel;
+                        steerYaw = (SteerMult * Mathf.Clamp(targetAccel.x, -MaxAccel, MaxAccel)) - (SteerDamping * -localAngVel.z);
+                        steerPitch = (SteerMult * Mathf.Clamp(targetAccel.y, -MaxAccel, MaxAccel)) - (SteerDamping * -localAngVel.x);
+                    }
+                    else
+                    {
+                        steerPitch = 0;
+                        steerYaw = 0;
+                    }
+                    s.yaw = Mathf.Clamp(steerYaw, -MaxSteer, MaxSteer);
+                    s.pitch = Mathf.Clamp(steerPitch, -MaxSteer, MaxSteer);
                 }
-                if (TimeIndex > dropTime + 0.5f)
+                if (TimeIndex > safteyTime)
                 {
                     float steerYaw;
                     float steerPitch;
@@ -871,13 +904,16 @@ namespace BDArmory.Weapons.Missiles
                         _velocityTransform.rotation = Quaternion.LookRotation(vessel.Velocity(), -vessel.transform.forward);
                         Vector3 normalAccel = _velocityTransform.InverseTransformDirection(PNTarget);
                         Vector3 localAngVel = vessel.angularVelocity;
-                        Vector3 localRotRate = _velocityTransform.InverseTransformDirection(vessel.acceleration) / (float)vessel.srfSpeed;
-                        Vector3 targetAngVel = normalAccel / (float)vessel.srfSpeed;
-                        float MaxRotRate = MaxG * (float)PhysicsGlobals.GravitationalAcceleration / (float)vessel.srfSpeed;
-                        targetAngVel -= new Vector3(localRotRate.x, localRotRate.y, 0);
+                        //Vector3 localRotRate = _velocityTransform.InverseTransformDirection(vessel.acceleration) / (float)vessel.srfSpeed;
+                        Vector3 localAccel = _velocityTransform.InverseTransformDirection(vessel.acceleration);
+                        //Vector3 targetAngVel = normalAccel / (float)vessel.srfSpeed;
+                        //float MaxRotRate = MaxG * (float)PhysicsGlobals.GravitationalAcceleration / (float)vessel.srfSpeed;
+                        float MaxAccel = MaxG * (float)PhysicsGlobals.GravitationalAcceleration;
+                        Vector3 targetAccel = normalAccel - new Vector3(localAccel.x, localAccel.y, 0);
+                        targetAccel /= MaxAccel;
 
-                        steerYaw = (SteerMult * Mathf.Clamp(targetAngVel.x, -MaxRotRate, MaxRotRate)) - (SteerDamping * -localAngVel.z);
-                        steerPitch = (SteerMult * Mathf.Clamp(targetAngVel.y, -MaxRotRate, MaxRotRate)) - (SteerDamping * -localAngVel.x);
+                        steerYaw = (SteerMult * Mathf.Clamp(targetAccel.x, -MaxAccel, MaxAccel)) - (SteerDamping * -localAngVel.z);
+                        steerPitch = (SteerMult * Mathf.Clamp(targetAccel.y, -MaxAccel, MaxAccel)) - (SteerDamping * -localAngVel.x);
                     }
 
                     else
