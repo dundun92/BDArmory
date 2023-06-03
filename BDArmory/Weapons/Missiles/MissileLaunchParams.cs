@@ -101,6 +101,12 @@ namespace BDArmory.Weapons.Missiles
             // Adjust ranges
             minLaunchRange = Mathf.Min(minLaunchRange + relSpeed * missileActiveTime, minLaunchRange);
             rangeAddMax += relSpeed * missileMaxRangeTime;
+            float bias = 0;
+            if (missile.minRangeBias > 0)
+            {
+                bias = missile.minRangeBias * (Vector3.Angle(launcherVelocity, targetVelocity) / 180);
+                minLaunchRange += bias;
+            }
 
             // Add altitude term to max
             double diffAlt = missile.vessel.altitude - FlightGlobals.getAltitudeAtPos(targetPosition);
