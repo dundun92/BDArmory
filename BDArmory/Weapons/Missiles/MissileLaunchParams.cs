@@ -102,9 +102,11 @@ namespace BDArmory.Weapons.Missiles
             minLaunchRange = Mathf.Min(minLaunchRange + relSpeed * missileActiveTime, minLaunchRange);
             rangeAddMax += relSpeed * missileMaxRangeTime;
             float bias = 0;
+            // new minrange WEZ calculator
+            float AngleOff = Vector3.Angle(launcherVelocity, targetVelocity);
             if (missile.minRangeBias > 0)
             {
-                bias = missile.minRangeBias * (Vector3.Angle(launcherVelocity, targetVelocity) / 180);
+                bias = missile.minRangeBias * (AngleOff / 180);
                 minLaunchRange += bias;
             }
 
@@ -114,6 +116,12 @@ namespace BDArmory.Weapons.Missiles
 
             float min = Mathf.Clamp(minLaunchRange, 0, BDArmorySettings.MAX_ENGAGEMENT_RANGE);
             float max = Mathf.Clamp(maxLaunchRange + rangeAddMax, min + 100, BDArmorySettings.MAX_ENGAGEMENT_RANGE);
+
+            //Rear aspect DLZ enforcement
+            if (missile.rearAspect && AngleOff > missile.maxAngleOff)
+            {
+                max = 0;
+            }
 
             return new MissileLaunchParams(min, max);
         }

@@ -67,8 +67,15 @@ namespace BDArmory.Weapons.Missiles
         [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "#LOC_BDArmory_MinStaticLaunchRange"), UI_FloatRange(minValue = 10f, maxValue = 4000f, stepIncrement = 100f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.All)]//Min Static Launch Range
         public float minStaticLaunchRange = 10;
 
+        // these allow for more proper use/employment of rear aspect missiles
         [KSPField]
         public float minRangeBias = 0f;
+
+        [KSPField]
+        public bool rearAspect = false;
+
+        [KSPField]
+        public float maxAngleOff = 180f;
 
         public float StandOffDistance = -1;
 
