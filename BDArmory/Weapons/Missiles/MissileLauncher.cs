@@ -67,6 +67,9 @@ namespace BDArmory.Weapons.Missiles
         public float liftArea = 0.015f;
 
         [KSPField]
+        public float dragArea = -1f; // Optional parameter to specify separate drag reference area, otherwise defaults to liftArea
+
+        [KSPField]
         public float steerMult = 0.5f;
 
         [KSPField]
@@ -471,6 +474,12 @@ namespace BDArmory.Weapons.Missiles
             Fields["maxStaticLaunchRange"].guiActiveEditor = false;
             Fields["minStaticLaunchRange"].guiActive = false;
             Fields["minStaticLaunchRange"].guiActiveEditor = false;
+
+            if (dragArea < 0)
+            {
+                if (BDArmorySettings.DEBUG_MISSILES) Debug.Log($"[BDArmory.MissileLauncher]: OnStart missile {shortName}: setting default dragArea to liftArea {liftArea}:");
+                dragArea = liftArea;
+            }
 
             loftState = 0;
             TimeToImpact = float.PositiveInfinity;
@@ -1773,7 +1782,7 @@ namespace BDArmory.Weapons.Missiles
                     TargetMf = null;
                     if (aero)
                     {
-                        aeroTorque = MissileGuidance.DoAeroForces(this, TargetPosition, liftArea, .25f, aeroTorque, maxTorque, maxAoA);
+                        aeroTorque = MissileGuidance.DoAeroForces(this, TargetPosition, liftArea, dragArea, .25f, aeroTorque, maxTorque, maxAoA);
                     }
                 }
 
@@ -2593,7 +2602,7 @@ namespace BDArmory.Weapons.Missiles
 
         void DoAero(Vector3 targetPosition)
         {
-            aeroTorque = MissileGuidance.DoAeroForces(this, targetPosition, liftArea, controlAuthority * steerMult, aeroTorque, finalMaxTorque, maxAoA);
+            aeroTorque = MissileGuidance.DoAeroForces(this, targetPosition, liftArea, dragArea, controlAuthority * steerMult, aeroTorque, finalMaxTorque, maxAoA);
         }
 
         void AGMBallisticGuidance()
@@ -2765,6 +2774,49 @@ namespace BDArmory.Weapons.Missiles
                 return vessel.ReferenceTransform.up;
             else
                 return MissileReferenceTransform.forward;
+        }
+
+        public override float GetKinematicTime()
+        {
+            // Get time at which the missile is traveling at the GetKinematicSpeed() speed
+            if (!launched) return -1f;
+
+            float missileKinematicTime = boostTime + cruiseTime + cruiseDelay + dropTime - TimeIndex;
+            float speed = currentThrust > 0 ? optimumAirspeed : (float)vessel.srfSpeed;
+            float minSpeed = GetKinematicSpeed();
+            if (speed > minSpeed)
+            {
+                float dragSpeed = (speed + minSpeed) / 2f;
+                float airDensity = (float)vessel.atmDensity;
+                float dragAccel;
+                if (useSimpleDrag)
+                    dragAccel = (deployed ? deployedDrag : simpleDrag) * 0.008f * 0.5f * speed * speed * airDensity;
+                else
+                {
+                    float AoA = 6f; // Fixed value better for prediction than exponential smoothing, 6 seems to work well
+                    FloatCurve dragCurve = MissileGuidance.DefaultDragCurve;
+                    float dragCd = dragCurve.Evaluate(AoA);
+                    float dragMultiplier = BDArmorySettings.GLOBAL_DRAG_MULTIPLIER;
+                    dragAccel = 0.5f * airDensity * dragSpeed * dragSpeed * dragArea * dragMultiplier * dragCd / part.mass;
+                }
+                missileKinematicTime += (speed - minSpeed) / dragAccel; // Add time for missile to slow down to min speed
+            }
+
+            return missileKinematicTime;
+        }
+
+        public override float GetKinematicSpeed()
+        {
+            // Get speed at which the missile is only capable of pulling a 2G turn at maxAoA
+            float Gs = 2f;
+
+            FloatCurve liftCurve = MissileGuidance.DefaultLiftCurve;
+            float bodyGravity = (float)PhysicsGlobals.GravitationalAcceleration * (float)vessel.orbit.referenceBody.GeeASL;
+            float liftMultiplier = BDArmorySettings.GLOBAL_LIFT_MULTIPLIER;
+
+            float kinematicSpeed = BDAMath.Sqrt((Gs * part.mass * bodyGravity) / (0.5f * (float)vessel.atmDensity * liftArea * liftMultiplier * liftCurve.Evaluate(maxAoA)));
+
+            return Mathf.Min(kinematicSpeed, 0.5f * (float)vessel.speedOfSound);
         }
 
         protected override void PartDie(Part p)
