@@ -98,8 +98,7 @@ namespace BDArmory.Targeting
             {
                 if (!vessel) return false;
                 if (vessel.situation == Vessel.Situations.SPLASHED) return true;
-                else
-                    return false;
+                return false;
             }
         }
 
@@ -116,7 +115,7 @@ namespace BDArmory.Targeting
         {
             get
             {
-                return vessel.vesselTransform.position;
+                return vessel.CoM;
             }
         }
 
@@ -147,11 +146,13 @@ namespace BDArmory.Targeting
                 {
                     return true;
                 }
-                else if (weaponManager && weaponManager.vessel.isCommandable) //Fix for GLOC'd pilots. IsControllable merely checks if plane has pilot; Iscommandable checks if they're conscious
+                else if (weaponManager)
                 {
-                    return true;
+                    return weaponManager.vessel.isCommandable; //isn't debris / has command part
+                    //return weaponManager.vessel.IsControllable; //vessel has probecore & EC/pilot && pilot is conscious
+                    //enable this if you want exceedingly honorable pilots who hold fire if their target has GLOC'ed themselves
+                    // GLOC'ed craft now go neutral stick, so they no longer get locked in a perma-stun deathloop                    
                 }
-
                 return false;
             }
         }
@@ -175,6 +176,8 @@ namespace BDArmory.Targeting
                 return false;
             }
         }
+
+        public List<(string, float)> debugTargetPriorities = []; // Debug info for target priorities.
 
         void Awake()
         {
@@ -298,7 +301,7 @@ namespace BDArmory.Targeting
             // Get the parts via the VesselModuleRegistry to avoid the expensive Find... commands.
             VesselModuleRegistry.OnVesselModified(vessel); // Make sure the vessel is up-to-date since this can happen as part of an event.
             _targetWeaponList.AddUniqueRange(VesselModuleRegistry.GetModuleWeapons(vessel).Select(m => m.part).Concat(VesselModuleRegistry.GetModules<MissileTurret>(vessel).Select(m => m.part)).Where(p => p is not null));
-            _targetEngineList.AddUniqueRange(VesselModuleRegistry.GetModuleEngines(vessel).Select(m => m.part).Concat(VesselModuleRegistry.GetModules<ModuleEnginesFX>(vessel).Select(m => m.part)).Where(p => p is not null));
+            _targetEngineList.AddUniqueRange(VesselModuleRegistry.GetModuleEngines(vessel).Select(m => m.part).Where(p => p is not null));
             _targetCommandList.AddUniqueRange(VesselModuleRegistry.GetModuleCommands(vessel).Select(m => m.part).Concat(VesselModuleRegistry.GetKerbalSeats(vessel).Select(m => m.part)).Where(p => p is not null));
             _targetMassList.AddRange(vessel.Parts.Where(p => p is not null));
 
@@ -383,7 +386,7 @@ namespace BDArmory.Targeting
         public float TargetPriRange(MissileFire myMf) // 1- Target range normalized with max weapon range
         {
             if (myMf == null) return 0;
-            float thisDist = (position - myMf.transform.position).magnitude;
+            float thisDist = (position - myMf.vessel.CoM).magnitude;
             float maxWepRange = 0;
             var weapons = VesselModuleRegistry.GetModules<ModuleWeapon>(myMf.vessel);
             if (weapons == null) return 0;
@@ -400,16 +403,20 @@ namespace BDArmory.Targeting
         public float TargetPriATA(MissileFire myMf) // Square cosine of antenna train angle
         {
             if (myMf == null) return 0;
-            float ataDot = Vector3.Dot(myMf.vessel.srf_vel_direction, (position - myMf.vessel.vesselTransform.position).normalized);
+            float ataDot = Vector3.Dot(myMf.vessel.srf_vel_direction, (position - myMf.vessel.CoM).normalized);
             ataDot = (ataDot + 1) / 2; // Adjust from 0-1 instead of -1 to 1
             return ataDot * ataDot;
         }
-        public float TargetPriEngagement(MissileFire mf) // Differentiate between flying and surface targets
+        public float TargetPriEngagement(MissileFire mf, double engagingAlt) // Differentiate between flying and surface targets
         {
             if (mf == null) return 0; // no WM, so no valid target, no impact on targeting score
             if (mf.vessel.LandedOrSplashed)
             {
                 return -1; //ground target
+            }
+            else if (mf.vessel.horizontalSrfSpeed < 30 && (mf.vessel.radarAltitude < 200 && engagingAlt > 800)) //if craft is flatspinning or similar, and is lower than 200m, while the aircraft targeting it is higher than 800, regard as semi-landed
+            {
+                return -0.5f;
             }
             else
             {
@@ -428,7 +435,7 @@ namespace BDArmory.Targeting
         public float TargetPriClosureTime(MissileFire myMf) // Time to closest point of approach, normalized for one minute
         {
             if (myMf == null) return 0;
-            float targetDistance = Vector3.Distance(vessel.transform.position, myMf.vessel.transform.position);
+            float targetDistance = Vector3.Distance(vessel.CoM, myMf.vessel.CoM);
             Vector3 currVel = (float)myMf.vessel.srfSpeed * myMf.vessel.Velocity().normalized;
             float closureTime = Mathf.Clamp((float)(1 / ((vessel.Velocity() - currVel).magnitude / targetDistance)), 0f, 60f);
             return 1 - closureTime / 60f;
@@ -479,7 +486,7 @@ namespace BDArmory.Targeting
         public float TargetPriAoD(MissileFire myMF)
         {
             if (myMF == null) return 0;
-            var relativePosition = vessel.transform.position - myMF.vessel.transform.position;
+            var relativePosition = vessel.CoM - myMF.vessel.CoM;
             float theta = Vector3.Angle(myMF.vessel.srf_vel_direction, relativePosition);
             float cosTheta2 = Mathf.Cos(theta / 2f);
             return Mathf.Clamp(((cosTheta2 * cosTheta2 + 1f) * 100f / Mathf.Max(10f, relativePosition.magnitude)) / 2, 0, 1); // Ranges from 0 to 1, clamped at 1 for distances closer than 100m
@@ -591,9 +598,28 @@ namespace BDArmory.Targeting
 
         public bool IsCloser(TargetInfo otherTarget, MissileFire myMf)
         {
-            float thisSqrDist = (position - myMf.transform.position).sqrMagnitude;
-            float otherSqrDist = (otherTarget.position - myMf.transform.position).sqrMagnitude;
+            float thisSqrDist = (position - myMf.vessel.CoM).sqrMagnitude;
+            float otherSqrDist = (otherTarget.position - myMf.vessel.CoM).sqrMagnitude;
             return thisSqrDist < otherSqrDist;
+        }
+
+        public bool SafeOrbitalIntercept(MissileFire myMf)
+        {
+            // For orbital AI craft, avoid intercepting targets if we are descending and the maneuver will bring our own periapsis to an unsafe altitude
+
+            if (!vessel) return true;
+            var orbitalAI = VesselModuleRegistry.GetModule<BDModuleOrbitalAI>(myMf.vessel);
+            if (orbitalAI == null)
+                return true;
+
+            Orbit o = myMf.vessel.orbit;
+            bool unsafeDescent = o.timeToPe > 0 && o.timeToPe < o.timeToAp && o.PeA < (1.2f * o.referenceBody.MinSafeAltitude());
+            bool inRange = (vessel.CoM - myMf.vessel.CoM).sqrMagnitude < orbitalAI.interceptRanges.y * orbitalAI.interceptRanges.y;
+            Vector3 relVel = vessel.Velocity() - myMf.vessel.Velocity();
+            bool killVelocityNeeded = Vector3.Dot(vessel.CoM - myMf.vessel.CoM, relVel) < 0f &&
+                Vector3.Dot(o.Prograde(Planetarium.GetUniversalTime()), relVel) < 0f; // Moving away from each other in prograde direction (kill vel direction is retrograde)
+
+            return (inRange || !(unsafeDescent && killVelocityNeeded));
         }
 
         public void VesselModified(Vessel v)

@@ -156,14 +156,92 @@ namespace BDArmory.Radar
             get { return displayedTargets[lockedTargetIndexes[activeLockedTargetIndex]]; }
         }
 
-        public TargetSignatureData activeIRTarget()
+        public TargetSignatureData activeIRTarget(Vessel desiredTarget, MissileFire mf)
         {
             TargetSignatureData data;
+            float targetMagnitude = 0;
+            int brightestTarget = 0;
             for (int i = 0; i < displayedIRTargets.Count; i++)
             {
-                if (displayedIRTargets[i].vessel == weaponManager.currentTarget)
+                if (desiredTarget != null)
                 {
-                    data = displayedIRTargets[i].targetData;
+                    if (displayedIRTargets[i].vessel == desiredTarget)
+                    {
+                        data = displayedIRTargets[i].targetData;
+                        return data;
+                    }
+                }
+                else
+                {
+                    if (displayedIRTargets[i].targetData.Team == mf.Team) continue;
+                    if (displayedIRTargets[i].magnitude > targetMagnitude)
+                    {
+                        targetMagnitude = displayedIRTargets[i].magnitude;
+                        brightestTarget = i;
+                    }
+
+                }
+            }
+            if (targetMagnitude > 0)
+            {
+                data = displayedIRTargets[brightestTarget].targetData;
+                return data;
+            }
+            else
+            {
+                data = TargetSignatureData.noTarget;
+                return data;
+            }
+        }
+
+        public TargetSignatureData detectedRadarTarget(Vessel desiredTarget, MissileFire mf) //passive sonar torpedoes, but could also be useful for LOAL missiles fired at detected but not locked targets, etc.
+        {
+            TargetSignatureData data;
+            float targetMagnitude = 0;
+            int brightestTarget = 0;
+            for (int i = 0; i < displayedTargets.Count; i++)
+            {
+                if (desiredTarget != null)
+                {
+                    if (displayedTargets[i].vessel == desiredTarget)
+                    {
+                        data = displayedTargets[i].targetData;
+                        data.lockedByRadar = displayedTargets[i].detectedByRadar;
+                        return data;
+                    }
+                }
+                else
+                {
+                    if (displayedTargets[i].targetData.Team == mf.Team) continue;
+                    if (displayedTargets[i].targetData.signalStrength > targetMagnitude)
+                    {
+                        targetMagnitude = displayedTargets[i].targetData.signalStrength;
+                        brightestTarget = i;
+                    }
+
+                }
+            }
+            if (targetMagnitude > 0)
+            {
+                data = displayedTargets[brightestTarget].targetData;
+                data.lockedByRadar = displayedTargets[brightestTarget].detectedByRadar;
+                return data;
+            }
+            else
+            {
+                data = TargetSignatureData.noTarget;
+                return data;
+            }
+        }
+
+        public TargetSignatureData detectedRadarTarget() //passive sonar torpedoes, but could also be useful for LOAL missiles fired at detected but not locked targets ,etc.
+        {
+            TargetSignatureData data;
+            for (int i = 0; i < displayedTargets.Count; i++)
+            {
+                if (displayedTargets[i].vessel == weaponManager.currentTarget)
+                {
+                    data = displayedTargets[i].targetData;
                     return data;
                 }
             }
@@ -397,27 +475,11 @@ namespace BDArmory.Radar
             _maxRadarRange = 0;
             if (availableRadars.Count > 0)
             {
-                List<ModuleRadar>.Enumerator rad = availableRadars.GetEnumerator();
-                while (rad.MoveNext())
-                {
-                    if (rad.Current == null) continue;
-                    float maxRange = rad.Current.radarDetectionCurve.maxTime * 1000;
-                    if ((rad.Current.vessel != vessel && !externalRadars.Contains(rad.Current)) || !(maxRange > 0)) continue;
-                    if (maxRange > _maxRadarRange) _maxRadarRange = maxRange;
-                }
-                rad.Dispose();
+                _maxRadarRange = Mathf.Max(_maxRadarRange, MaxRadarRange());
             }
             else if (availableIRSTs.Count > 0)
             {
-                List<ModuleIRST>.Enumerator irst = availableIRSTs.GetEnumerator();
-                while (irst.MoveNext())
-                {
-                    if (irst.Current == null) continue;
-                    float maxRange = irst.Current.DetectionCurve.maxTime * 1000;
-                    if (irst.Current.vessel != vessel || !(maxRange > 0)) continue;
-                    if (maxRange > _maxRadarRange) _maxRadarRange = maxRange;
-                }
-                irst.Dispose();
+                _maxRadarRange = Mathf.Max(_maxRadarRange, MaxIRSTRange());
             }
             // Now rebuild range display array
             List<float> newArray = new List<float>();
@@ -430,6 +492,36 @@ namespace BDArmory.Radar
                 }
             }
             if (newArray.Count > 0) rIncrements = newArray.ToArray();
+        }
+
+        public float MaxRadarRange()
+        {
+            float overallMaxRange = 0f;
+            List<ModuleRadar>.Enumerator rad = availableRadars.GetEnumerator();
+            while (rad.MoveNext())
+            {
+                if (rad.Current == null) continue;
+                float maxRange = rad.Current.radarDetectionCurve.maxTime * 1000;
+                if ((rad.Current.vessel != vessel && !externalRadars.Contains(rad.Current)) || !(maxRange > 0)) continue;
+                if (maxRange > overallMaxRange) overallMaxRange = maxRange;
+            }
+            rad.Dispose();
+            return overallMaxRange;
+        }
+
+        public float MaxIRSTRange()
+        {
+            float overallMaxRange = 0f;
+            List<ModuleIRST>.Enumerator irst = availableIRSTs.GetEnumerator();
+            while (irst.MoveNext())
+            {
+                if (irst.Current == null) continue;
+                float maxRange = irst.Current.DetectionCurve.maxTime * 1000;
+                if (irst.Current.vessel != vessel || !(maxRange > 0)) continue;
+                if (maxRange > overallMaxRange) overallMaxRange = maxRange;
+            }
+            irst.Dispose();
+            return overallMaxRange;
         }
 
         private void UpdateDataLinkCapability()
@@ -568,16 +660,27 @@ namespace BDArmory.Radar
                 : 0;
         }
 
-        private void UpdateSlaveData()
+        private bool UpdateSlaveData()
         {
-            if (!slaveTurrets || !weaponManager) return;
+            if (!weaponManager)
+            {
+                return false;
+            }
+            if (!slaveTurrets || !locked)
+            {
+                weaponManager.slavedTarget = TargetSignatureData.noTarget;
+                return false;
+            }
             weaponManager.slavingTurrets = true;
-            if (!locked) return;
             TargetSignatureData lockedTarget = lockedTargetData.targetData;
-            weaponManager.slavedPosition = lockedTarget.predictedPosition;
+            weaponManager.slavedPosition = lockedTarget.predictedPositionWithChaffFactor(lockedTargetData.detectedByRadar.radarChaffClutterFactor);
             weaponManager.slavedVelocity = lockedTarget.velocity;
             weaponManager.slavedAcceleration = lockedTarget.acceleration;
             weaponManager.slavedTarget = lockedTarget;
+            return true;
+            //This is only slaving turrets if there's a radar lock on the WM's guardTarget
+            //no radar-guided gunnery for scan radars?
+            //what about multiple turret multitarget tracking?
         }
 
         private void Update()
@@ -613,7 +716,10 @@ namespace BDArmory.Radar
 
                 CleanDisplayedContacts();
 
-                UpdateSlaveData();
+                if (!UpdateSlaveData() && slaveTurrets)
+                {
+                    UnslaveTurrets();
+                }
             }
             else
             {
@@ -816,6 +922,30 @@ namespace BDArmory.Radar
             }
         }
 
+        public float GetCrankFOV()
+        {
+            // Get max FOV of radars onboard vessel, or the minimum FOV radars with target locks
+
+            float fov = 0f;
+            var radars = VesselModuleRegistry.GetModules<ModuleRadar>(vessel);
+            if (radars != null)
+            {
+                using (var radar = radars.GetEnumerator())
+                    while (radar.MoveNext())
+                    {
+                        if (radar.Current == null) continue;
+                        if (radar.Current.omnidirectional) return 360f;
+                        fov = Mathf.Max(fov, radar.Current.directionalFieldOfView);
+                    }
+            }
+            for (int i = 0; i < lockedTargetIndexes.Count; i++)
+            {
+                fov = Mathf.Min(fov, displayedTargets[lockedTargetIndexes[i]].detectedByRadar.directionalFieldOfView);
+            }
+
+            return fov;
+        }
+
         public void SlaveTurrets()
         {
             var targetingCameras = VesselModuleRegistry.GetModules<ModuleTargetingCamera>(vessel);
@@ -899,6 +1029,7 @@ namespace BDArmory.Radar
 
             if (resizingWindow && Event.current.type == EventType.MouseUp) { resizingWindow = false; }
             const string windowTitle = "Radar";
+            if (BDArmorySettings.UI_SCALE_ACTUAL != 1) GUIUtility.ScaleAroundPivot(BDArmorySettings.UI_SCALE_ACTUAL * Vector2.one, BDArmorySetup.WindowRectRadar.position);
             BDArmorySetup.WindowRectRadar = GUI.Window(524141, BDArmorySetup.WindowRectRadar, WindowRadar, windowTitle, GUI.skin.window);
             GUIUtils.UseMouseEventInRect(BDArmorySetup.WindowRectRadar);
 
@@ -929,6 +1060,7 @@ namespace BDArmory.Radar
             //==============================
             GUI.BeginGroup(RadarDisplayRect);
 
+            var guiMatrix = GUI.matrix;
             //bool omnidirectionalDisplay = (radarCount == 1 && linkedRadars[0].omnidirectional);
             float directionalFieldOfView = omniDisplay ? 0 : availableRadars.Count > 0 ? availableRadars[0].directionalFieldOfView : availableIRSTs[0].directionalFieldOfView;
             //bool linked = (radarCount > 1);
@@ -953,15 +1085,16 @@ namespace BDArmory.Radar
                 {
                     dAngle = -dAngle;
                 }
-                GUIUtility.RotateAroundPivot(dAngle, scanRect.center);
+                GUIUtility.RotateAroundPivot(dAngle, guiMatrix * scanRect.center);
                 GUI.DrawTexture(
                     new Rect(scanRect.center.x - (directionSize / 2), scanRect.center.y - (directionSize / 2),
                         directionSize, directionSize), BDArmorySetup.Instance.directionTriangleIcon,
                     ScaleMode.StretchToFill, true);
-                GUI.matrix = Matrix4x4.identity;
+                GUI.matrix = guiMatrix;
 
                 for (int i = 0; i < rCount; i++)
                 {
+                    if (availableRadars[i] == null || availableRadars[i].gameObject == null) continue;
                     bool canScan = availableRadars[i].canScan;
                     bool canTrackWhileScan = availableRadars[i].canTrackWhileScan;
                     bool islocked = availableRadars[i].locked;
@@ -986,7 +1119,7 @@ namespace BDArmory.Radar
                             currentAngle += angleFromNorth;
                         }
 
-                        GUIUtility.RotateAroundPivot(currentAngle, new Vector2((RadarScreenSize * BDArmorySettings.RADAR_WINDOW_SCALE) / 2, (RadarScreenSize * BDArmorySettings.RADAR_WINDOW_SCALE) / 2));
+                        GUIUtility.RotateAroundPivot(currentAngle, guiMatrix * new Vector2((RadarScreenSize * BDArmorySettings.RADAR_WINDOW_SCALE) / 2, (RadarScreenSize * BDArmorySettings.RADAR_WINDOW_SCALE) / 2));
                         if (availableRadars[i].omnidirectional && radarCount == 1)
                         {
                             GUI.DrawTexture(scanRect, scanTexture, ScaleMode.StretchToFill, true);
@@ -997,7 +1130,7 @@ namespace BDArmory.Radar
                                 new Rect(scanRect.x + (scanRect.width / 2) - 1, scanRect.y, 2, scanRect.height / 2),
                                 new Color(0, 1, 0, 0.35f));
                         }
-                        GUI.matrix = Matrix4x4.identity;
+                        GUI.matrix = guiMatrix;
                     }
 
                     //if linked and directional, draw FOV lines
@@ -1006,15 +1139,16 @@ namespace BDArmory.Radar
                     float lineWidth = 2;
                     Rect verticalLineRect = new Rect(scanRect.center.x - (lineWidth / 2), 0, lineWidth,
                       scanRect.center.y);
-                    GUIUtility.RotateAroundPivot(dAngle + fovAngle + radarAngle, scanRect.center);
+                    GUIUtility.RotateAroundPivot(dAngle + fovAngle + radarAngle, guiMatrix * scanRect.center);
                     GUIUtils.DrawRectangle(verticalLineRect, new Color(0, 1, 0, 0.6f));
-                    GUI.matrix = Matrix4x4.identity;
-                    GUIUtility.RotateAroundPivot(dAngle - fovAngle + radarAngle, scanRect.center);
+                    GUI.matrix = guiMatrix;
+                    GUIUtility.RotateAroundPivot(dAngle - fovAngle + radarAngle, guiMatrix * scanRect.center);
                     GUIUtils.DrawRectangle(verticalLineRect, new Color(0, 1, 0, 0.4f));
-                    GUI.matrix = Matrix4x4.identity;
+                    GUI.matrix = guiMatrix;
                 }
                 for (int i = 0; i < iCount; i++)
                 {
+                    if (availableIRSTs[i] == null || availableIRSTs[i].gameObject == null) continue;
                     bool canScan = availableIRSTs[i].canScan;
                     float currentAngle = availableIRSTs[i].currentAngle;
 
@@ -1036,7 +1170,7 @@ namespace BDArmory.Radar
                         currentAngle += angleFromNorth;
                     }
 
-                    GUIUtility.RotateAroundPivot(currentAngle, new Vector2((RadarScreenSize * BDArmorySettings.RADAR_WINDOW_SCALE) / 2, (RadarScreenSize * BDArmorySettings.RADAR_WINDOW_SCALE) / 2));
+                    GUIUtility.RotateAroundPivot(currentAngle, guiMatrix * new Vector2((RadarScreenSize * BDArmorySettings.RADAR_WINDOW_SCALE) / 2, (RadarScreenSize * BDArmorySettings.RADAR_WINDOW_SCALE) / 2));
                     if (availableIRSTs[i].omnidirectional && irstCount == 1)
                     {
                         GUI.DrawTexture(scanRect, IRscanTexture, ScaleMode.StretchToFill, true);
@@ -1047,7 +1181,7 @@ namespace BDArmory.Radar
                             new Rect(scanRect.x + (scanRect.width / 2) - 1, scanRect.y, 2, scanRect.height / 2),
                             new Color(1, 0, 0, 0.35f));
                     }
-                    GUI.matrix = Matrix4x4.identity;
+                    GUI.matrix = guiMatrix;
 
 
                     //if linked and directional, draw FOV lines
@@ -1056,12 +1190,12 @@ namespace BDArmory.Radar
                     float lineWidth = 2;
                     Rect verticalLineRect = new Rect(scanRect.center.x - (lineWidth / 2), 0, lineWidth,
                       scanRect.center.y);
-                    GUIUtility.RotateAroundPivot(dAngle + fovAngle + radarAngle, scanRect.center);
+                    GUIUtility.RotateAroundPivot(dAngle + fovAngle + radarAngle, guiMatrix * scanRect.center);
                     GUIUtils.DrawRectangle(verticalLineRect, new Color(1, 0, 0, 0.6f));
-                    GUI.matrix = Matrix4x4.identity;
-                    GUIUtility.RotateAroundPivot(dAngle - fovAngle + radarAngle, scanRect.center);
+                    GUI.matrix = guiMatrix;
+                    GUIUtility.RotateAroundPivot(dAngle - fovAngle + radarAngle, guiMatrix * scanRect.center);
                     GUIUtils.DrawRectangle(verticalLineRect, new Color(1, 0, 0, 0.4f));
-                    GUI.matrix = Matrix4x4.identity;
+                    GUI.matrix = guiMatrix;
                 }
             }
             else
@@ -1082,7 +1216,7 @@ namespace BDArmory.Radar
                         RadarUtils.WorldToRadarRadial(
                             referenceTransform.position +
                             (Quaternion.AngleAxis(indicatorAngle, referenceTransform.up) * referenceTransform.forward),
-                            referenceTransform, scanRect, 5000, directionalFieldOfView / 2);
+                            referenceTransform, scanRect, 5000, directionalFieldOfView / 2, true);
                     GUI.DrawTexture(new Rect(scanIndicatorPos.x - 7, scanIndicatorPos.y - 10, 14, 20),
                         BDArmorySetup.Instance.greenDiamondTexture, ScaleMode.StretchToFill, true);
 
@@ -1092,13 +1226,13 @@ namespace BDArmory.Radar
                             referenceTransform.position +
                             (Quaternion.AngleAxis(availableRadars[i].leftLimit, referenceTransform.up) *
                              referenceTransform.forward), referenceTransform, scanRect, 5000,
-                            directionalFieldOfView / 2);
+                            directionalFieldOfView / 2, true);
                     Vector2 rightPos =
                         RadarUtils.WorldToRadarRadial(
                             referenceTransform.position +
                             (Quaternion.AngleAxis(availableRadars[i].rightLimit, referenceTransform.up) *
                              referenceTransform.forward), referenceTransform, scanRect, 5000,
-                            directionalFieldOfView / 2);
+                            directionalFieldOfView / 2, true);
                     float barWidth = 2;
                     float barHeight = 15;
                     Color origColor = GUI.color;
@@ -1120,7 +1254,7 @@ namespace BDArmory.Radar
                         RadarUtils.WorldToRadarRadial(
                             referenceTransform.position +
                             (Quaternion.AngleAxis(indicatorAngle, referenceTransform.up) * referenceTransform.forward),
-                            referenceTransform, scanRect, 5000, directionalFieldOfView / 2);
+                            referenceTransform, scanRect, 5000, directionalFieldOfView / 2, true);
                     GUI.DrawTexture(new Rect(scanIndicatorPos.x - 7, scanIndicatorPos.y - 10, 14, 20),
                         BDArmorySetup.Instance.greenDiamondTexture, ScaleMode.StretchToFill, true); //FIXME?
                 }
@@ -1159,9 +1293,9 @@ namespace BDArmory.Radar
                 Vector3 localUp = vessel.ReferenceTransform.InverseTransformDirection(referenceTransform.up);
                 localUp = localUp.ProjectOnPlanePreNormalized(Vector3.up).normalized;
                 float rollAngle = -BDAMath.SignedAngle(-Vector3.forward, localUp, Vector3.right);
-                GUIUtility.RotateAroundPivot(rollAngle, scanRect.center);
+                GUIUtility.RotateAroundPivot(rollAngle, guiMatrix * scanRect.center);
                 GUI.DrawTexture(scanRect, rollIndicatorTexture, ScaleMode.StretchToFill, true);
-                GUI.matrix = Matrix4x4.identity;
+                GUI.matrix = guiMatrix;
             }
 
             if (noData)// && iCount == 0)
@@ -1196,23 +1330,14 @@ namespace BDArmory.Radar
             {
                 if (Mouse.delta.x != 0 || Mouse.delta.y != 0)
                 {
-                    float diff = Mouse.delta.x + Mouse.delta.y;
-                    UpdateRadarScale(diff);
+                    float diff = (Mathf.Abs(Mouse.delta.x) > Mathf.Abs(Mouse.delta.y) ? Mouse.delta.x : Mouse.delta.y) / BDArmorySettings.UI_SCALE_ACTUAL;
+                    BDArmorySettings.RADAR_WINDOW_SCALE = Mathf.Clamp(BDArmorySettings.RADAR_WINDOW_SCALE + diff / RadarScreenSize, BDArmorySettings.RADAR_WINDOW_SCALE_MIN, BDArmorySettings.RADAR_WINDOW_SCALE_MAX);
                     BDArmorySetup.ResizeRadarWindow(BDArmorySettings.RADAR_WINDOW_SCALE);
                 }
             }
             // End Resizing code.
 
             GUIUtils.RepositionWindow(ref BDArmorySetup.WindowRectRadar);
-        }
-
-        internal static void UpdateRadarScale(float diff)
-        {
-            float scaleDiff = ((diff / (BDArmorySetup.WindowRectRadar.width + BDArmorySetup.WindowRectRadar.height)) * 100 * .01f);
-            BDArmorySettings.RADAR_WINDOW_SCALE += Mathf.Abs(scaleDiff) > .01f ? scaleDiff : scaleDiff > 0 ? .01f : -.01f;
-            BDArmorySettings.RADAR_WINDOW_SCALE = Mathf.Clamp(BDArmorySettings.RADAR_WINDOW_SCALE,
-                BDArmorySettings.RADAR_WINDOW_SCALE_MIN,
-                BDArmorySettings.RADAR_WINDOW_SCALE_MAX);
         }
 
         private void DisplayRange()
@@ -1617,7 +1742,7 @@ namespace BDArmory.Radar
             mr.AddExternalVRD(this);
         }
 
-        public void AddRadarContact(ModuleRadar radar, TargetSignatureData contactData, bool _locked)
+        public void AddRadarContact(ModuleRadar radar, TargetSignatureData contactData, bool _locked, bool receivedData = false)
         {
             bool addContact = true;
 
@@ -1626,17 +1751,18 @@ namespace BDArmory.Radar
 
             if (rData.vessel == vessel) return;
 
-            if (rData.vessel.altitude < -20 && radar.rwrThreatType != (int)RadarWarningReceiver.RWRThreatTypes.Sonar) addContact = false; // Normal Radar Should not detect Underwater vessels
-            if (!rData.vessel.LandedOrSplashed && radar.rwrThreatType == (int)RadarWarningReceiver.RWRThreatTypes.Sonar) addContact = false; //Sonar should not detect Aircraft
-            if (rData.vessel.altitude < 0 && radar.rwrThreatType == (int)RadarWarningReceiver.RWRThreatTypes.Sonar && vessel.Splashed) addContact = true; //Sonar only detects underwater vessels // Sonar should only work when in the water
-            if (!vessel.Splashed && radar.rwrThreatType == (int)RadarWarningReceiver.RWRThreatTypes.Sonar) addContact = false; // Sonar should only work when in the water
-            if (rData.vessel.Landed && radar.rwrThreatType == (int)RadarWarningReceiver.RWRThreatTypes.Sonar) addContact = false; //Sonar should not detect land vessels
+            if (!receivedData) //don't prevent VRD from e.g. getting datalinked sonar data from an ally boat despite being airborne
+            {
+                if (!rData.vessel.LandedOrSplashed && radar.sonarMode != ModuleRadar.SonarModes.None) addContact = false; //Sonar should not detect Aircraft
+                if (rData.vessel.Splashed && radar.sonarMode != ModuleRadar.SonarModes.None && vessel.Splashed) addContact = true; //Sonar only detects underwater vessels // Sonar should only work when in the water
+            }
 
             if (addContact == false) return;
 
             rData.signalPersistTime = radar.signalPersistTime;
             rData.detectedByRadar = radar;
             rData.locked = _locked;
+            contactData.lockedByRadar = radar;
             rData.targetData = contactData;
             rData.pingPosition = UpdatedPingPosition(contactData.position, radar);
 
@@ -1904,6 +2030,7 @@ namespace BDArmory.Radar
 
         private void DrawDisplayedContacts()
         {
+            var guiMatrix = GUI.matrix;
             float myAlt = (float)vessel.altitude;
 
             bool drewLockLabel = false;
@@ -1937,13 +2064,13 @@ namespace BDArmory.Radar
                     {
                         vAngle = -vAngle;
                     }
-                    GUIUtility.RotateAroundPivot(vAngle, pingPosition);
+                    GUIUtility.RotateAroundPivot(vAngle, guiMatrix * pingPosition);
                     Rect pingRect = new Rect(pingPosition.x - (lockIconSize / 2), pingPosition.y - (lockIconSize / 2),
                         lockIconSize, lockIconSize);
 
                     Texture2D txtr = (i == lockedTargetIndexes[activeLockedTargetIndex]) ? lockIconActive : lockIcon;
                     GUI.DrawTexture(pingRect, txtr, ScaleMode.StretchToFill, true);
-                    GUI.matrix = Matrix4x4.identity;
+                    GUI.matrix = guiMatrix;
                     GUI.Label(new Rect(pingPosition.x + (lockIconSize * 0.35f) + 2, pingPosition.y, 100, 24),
                         (lockedTarget.altitude / 1000).ToString("0"), distanceStyle);
 
@@ -2003,7 +2130,7 @@ namespace BDArmory.Radar
                             if (weaponManager.selectedWeapon.GetWeaponClass() == WeaponClasses.Missile || weaponManager.selectedWeapon.GetWeaponClass() == WeaponClasses.SLW)
                             {
                                 MissileBase currMissile = weaponManager.CurrentMissile;
-                                if (currMissile.TargetingMode == MissileBase.TargetingModes.Radar || currMissile.TargetingMode == MissileBase.TargetingModes.Heat)
+                                if (currMissile && (currMissile.TargetingMode == MissileBase.TargetingModes.Radar || currMissile.TargetingMode == MissileBase.TargetingModes.Heat || currMissile.TargetingMode == MissileBase.TargetingModes.Inertial || currMissile.TargetingMode == MissileBase.TargetingModes.Gps))
                                 {
                                     MissileLaunchParams dlz = MissileLaunchParams.GetDynamicLaunchParams(currMissile, lockedTarget.velocity, lockedTarget.predictedPosition);
                                     float rangeToPixels = (1 / rIncrements[rangeIndex]) * RadarDisplayRect.height;
@@ -2052,10 +2179,10 @@ namespace BDArmory.Radar
 
                                     Rect targetDistanceRect = new Rect(dlzX - (targetDistIconSize / 2), targetDistY,
                                         targetDistIconSize, targetDistIconSize);
-                                    GUIUtility.RotateAroundPivot(90, targetDistanceRect.center);
+                                    GUIUtility.RotateAroundPivot(90, guiMatrix * targetDistanceRect.center);
                                     GUI.DrawTexture(targetDistanceRect, BDArmorySetup.Instance.directionTriangleIcon,
                                         ScaleMode.StretchToFill, true);
-                                    GUI.matrix = Matrix4x4.identity;
+                                    GUI.matrix = guiMatrix;
                                 }
                             }
                         }
@@ -2121,7 +2248,7 @@ namespace BDArmory.Radar
                         {
                             vAngle = -vAngle;
                         }
-                        GUIUtility.RotateAroundPivot(vAngle, pingPosition);
+                        GUIUtility.RotateAroundPivot(vAngle, guiMatrix * pingPosition);
                         Color origGUIColor = GUI.color;
                         GUI.color = Color.white - new Color(0, 0, 0, minusAlpha);
                         if (weaponManager &&
@@ -2134,7 +2261,7 @@ namespace BDArmory.Radar
                             GUI.DrawTexture(pingRect, radarContactIcon, ScaleMode.StretchToFill, true);
                         }
 
-                        GUI.matrix = Matrix4x4.identity;
+                        GUI.matrix = guiMatrix;
                         GUI.Label(new Rect(pingPosition.x + (lockIconSize * 0.35f) + 2, pingPosition.y, 100, 24),
                             (displayedTargets[i].targetData.altitude / 1000).ToString("0"), distanceStyle);
                         GUI.color = origGUIColor;
@@ -2201,7 +2328,7 @@ namespace BDArmory.Radar
                                 localPos.y = 0;
                                 float angleToContact = Vector3.Angle(localPos, Vector3.forward);
                                 if (localPos.x < 0) angleToContact = -angleToContact;
-                                GUIUtility.RotateAroundPivot(angleToContact, pingPosition);
+                                GUIUtility.RotateAroundPivot(angleToContact, guiMatrix * pingPosition);
                             }
 
                             if (jammed ||
@@ -2221,7 +2348,7 @@ namespace BDArmory.Radar
                                 GUI.color = origGuiColor;
                             }
 
-                            GUI.matrix = Matrix4x4.identity;
+                            GUI.matrix = guiMatrix;
                         }
                     }
 
@@ -2244,6 +2371,7 @@ namespace BDArmory.Radar
 
         private void DrawDisplayedIRContacts()
         {
+            var guiMatrix = GUI.matrix;
             float lockIconSize = 24 * BDArmorySettings.RADAR_WINDOW_SCALE;
             Vector2 Centerpoint = new Vector2((RadarScreenSize * BDArmorySettings.RADAR_WINDOW_SCALE) / 2, (RadarScreenSize * BDArmorySettings.RADAR_WINDOW_SCALE) / 2);
             for (int i = 0; i < displayedIRTargets.Count; i++)
@@ -2300,7 +2428,7 @@ namespace BDArmory.Radar
 
                         if (omniDisplay)
                         {
-                            GUIUtility.RotateAroundPivot(vAngle, Centerpoint);
+                            GUIUtility.RotateAroundPivot(vAngle, guiMatrix * Centerpoint);
                             pingRect = new Rect(Centerpoint.x - (mDotSize / 2), Centerpoint.y - (RadarDisplayRect.height / 2), mDotSize, mDotSize);
                         }
                         else pingRect = new Rect(pingPosition.x - (mDotSize / 2), pingPosition.y - (mDotSize / 2), mDotSize, mDotSize);
@@ -2310,7 +2438,7 @@ namespace BDArmory.Radar
                         GUI.DrawTexture(pingRect, omniDisplay ? displayedIRTargets[i].detectedByIRST.irstRanging ? BDArmorySetup.Instance.redDotTexture : BDArmorySetup.Instance.irSpikeTexture : BDArmorySetup.Instance.redDotTexture, ScaleMode.StretchToFill, true);
                         GUI.color = origGUIColor;
 
-                        GUI.matrix = Matrix4x4.identity;
+                        GUI.matrix = guiMatrix;
                     }
                     /*
                     else if (displayedIRTargets[i].detectedByIRST.showDirectionWhileScan &&
@@ -2326,7 +2454,7 @@ namespace BDArmory.Radar
                         {
                             vAngle = -vAngle;
                         }
-                        GUIUtility.RotateAroundPivot(vAngle, pingPosition);
+                        GUIUtility.RotateAroundPivot(vAngle, guiMatrix*pingPosition);
                         Color origGUIColor = GUI.color;
                         GUI.color = Color.white - new Color(0, 0, 0, minusAlpha);
                         if (weaponManager &&
@@ -2339,7 +2467,7 @@ namespace BDArmory.Radar
                             GUI.DrawTexture(pingRect, irContactIcon, ScaleMode.StretchToFill, true);
                         }
 
-                        GUI.matrix = Matrix4x4.identity;
+                        GUI.matrix = guiMatrix;
                         GUI.Label(new Rect(pingPosition.x + (lockIconSize * 0.35f) + 2, pingPosition.y, 100, 24),
                             (displayedIRTargets[i].targetData.altitude / 1000).ToString("0"), distanceStyle);
                         GUI.color = origGUIColor;
@@ -2354,7 +2482,7 @@ namespace BDArmory.Radar
 
                         if (omniDisplay)
                         {
-                            GUIUtility.RotateAroundPivot(vAngle, Centerpoint);
+                            GUIUtility.RotateAroundPivot(vAngle, guiMatrix * Centerpoint);
                             pingRect = new Rect(Centerpoint.x - (mDotSize / 2), Centerpoint.y - (RadarDisplayRect.height / 2), mDotSize, mDotSize);
                         }
                         else pingRect = new Rect(pingPosition.x - (mDotSize / 2), pingPosition.y - (mDotSize / 2), mDotSize, mDotSize);
@@ -2364,7 +2492,7 @@ namespace BDArmory.Radar
                         GUI.DrawTexture(pingRect, omniDisplay ? displayedIRTargets[i].detectedByIRST.irstRanging ? BDArmorySetup.Instance.redDotTexture : BDArmorySetup.Instance.irSpikeTexture : BDArmorySetup.Instance.redDotTexture, ScaleMode.StretchToFill, true);
                         GUI.color = origGUIColor;
 
-                        GUI.matrix = Matrix4x4.identity;
+                        GUI.matrix = guiMatrix;
                     }
 
                     if (BDArmorySettings.DEBUG_RADAR)

@@ -70,11 +70,12 @@ namespace BDArmory.VesselSpawning
         public float altitude; // Altitude above terrain / water to adjust spawning position to.
         public float pitch; // Pitch if spawning airborne.
         public bool airborne; // Whether the vessel should be spawned in an airborne configuration or not.
+        public bool inOrbit; // Whether the vessel should be spawned in orbit or not (overrides airborne).
         public int teamIndex;
         public bool reuseURLVesselName; // Reuse the vesselName for the same craftURL (for continuous spawning).
         public List<ProtoCrewMember> crew; // Override the crew.
         public EditorFacility editorFacility = EditorFacility.SPH; // Which editorFacility the craft belongs to (found out during spawning).
-        public VesselSpawnConfig(string craftURL, Vector3 position, Vector3 direction, float altitude, float pitch, bool airborne, int teamIndex = 0, bool reuseURLVesselName = false, List<ProtoCrewMember> crew = null)
+        public VesselSpawnConfig(string craftURL, Vector3 position, Vector3 direction, float altitude, float pitch, bool airborne, bool inOrbit, int teamIndex = 0, bool reuseURLVesselName = false, List<ProtoCrewMember> crew = null)
         {
             this.craftURL = craftURL;
             this.position = position;
@@ -82,6 +83,7 @@ namespace BDArmory.VesselSpawning
             this.altitude = altitude;
             this.pitch = pitch;
             this.airborne = airborne;
+            this.inOrbit = inOrbit;
             this.teamIndex = teamIndex;
             this.reuseURLVesselName = reuseURLVesselName;
             this.crew = crew == null ? null : crew.ToList(); // Take a copy.
@@ -95,19 +97,22 @@ namespace BDArmory.VesselSpawning
     [Serializable]
     public class CircularSpawnConfig : SpawnConfig
     {
-        public CircularSpawnConfig(SpawnConfig spawnConfig, float distance, bool absDistanceOrFactor) : base(spawnConfig)
+        public CircularSpawnConfig(SpawnConfig spawnConfig, float distance, bool absDistanceOrFactor, float refHeading = 0) : base(spawnConfig)
         {
             this.distance = distance;
             this.absDistanceOrFactor = absDistanceOrFactor;
+            this.refHeading = refHeading;
         }
         public CircularSpawnConfig(CircularSpawnConfig other) : base(other)
         {
             this.distance = other.distance;
             this.absDistanceOrFactor = other.absDistanceOrFactor;
+            this.refHeading = other.refHeading;
         }
-        public CircularSpawnConfig(int worldIndex, double latitude, double longitude, double altitude, float distance, bool absDistanceOrFactor, bool killEverythingFirst = true, bool assignTeams = true, int numberOfTeams = 0, List<int> teamCounts = null, List<List<string>> teamsSpecific = null, string folder = "", List<string> craftFiles = null) : this(new SpawnConfig(worldIndex, latitude, longitude, altitude, killEverythingFirst, assignTeams, numberOfTeams, teamCounts, teamsSpecific, folder, craftFiles), distance, absDistanceOrFactor) { } // Constructor for legacy SpawnConfigs that should be CircularSpawnConfigs.
+        public CircularSpawnConfig(int worldIndex, double latitude, double longitude, double altitude, float distance, bool absDistanceOrFactor, float refHeading = 0, bool killEverythingFirst = true, bool assignTeams = true, int numberOfTeams = 0, List<int> teamCounts = null, List<List<string>> teamsSpecific = null, string folder = "", List<string> craftFiles = null) : this(new SpawnConfig(worldIndex, latitude, longitude, altitude, killEverythingFirst, assignTeams, numberOfTeams, teamCounts, teamsSpecific, folder, craftFiles), distance, absDistanceOrFactor, refHeading) { } // Constructor for legacy SpawnConfigs that should be CircularSpawnConfigs.
         public float distance;
         public bool absDistanceOrFactor; // If true, the distance value is used as-is, otherwise it is used as a factor giving the actual distance: (N+1)*distance, where N is the number of vessels.
+        public float refHeading; // Reference heading for the first craft.
     }
 
     /// <summary>
@@ -121,9 +126,20 @@ namespace BDArmory.VesselSpawning
             this.name = name;
             this.customVesselSpawnConfigs = vesselSpawnConfigs;
         }
+        /// <summary>
+        /// Note: this only makes a shallow copy of customVesselSpawnConfigs.
+        /// </summary>
+        /// <param name="other"></param>
+        public CustomSpawnConfig(CustomSpawnConfig other) : base(other)
+        {
+            name = other.name;
+            customVesselSpawnConfigs = other.customVesselSpawnConfigs?.Select(config => config?.ToList()).ToList();
+            includeCraftURLs = other.includeCraftURLs;
+        }
         public string name;
         public List<List<CustomVesselSpawnConfig>> customVesselSpawnConfigs;
-        public override string ToString() => $"{{name: {name}, worldIndex: {worldIndex}, lat: {latitude:F3}, lon: {longitude:F3}, alt: {altitude:F0}; {(customVesselSpawnConfigs == null ? "" : string.Join("; ", customVesselSpawnConfigs.Select(cfgs => string.Join(", ", cfgs))))}}}";
+        public bool includeCraftURLs = false;
+        public override string ToString() => $"{{name: {name}, worldIndex: {worldIndex}, lat: {latitude:F3}, lon: {longitude:F3}, alt: {altitude:F0}, URLs: {includeCraftURLs}; {(customVesselSpawnConfigs == null ? "" : string.Join("; ", customVesselSpawnConfigs.Select(cfgs => string.Join(", ", cfgs))))}}}";
     }
 
     /// <summary>

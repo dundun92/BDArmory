@@ -38,8 +38,11 @@ namespace BDArmory.FX
         public string SourceVesselName { get; set; }
         public string ReportingName { get; set; }
         public float yield { get; set; } //kilotons
-        public Vector3 Position { get; set; }
-        public Part ExplosivePart { get; set; }
+        public Vector3 Position { get { return _position; } set { _position = value; transform.position = _position; } }
+        Vector3 _position;
+        public Vector3 Velocity { get; set; }
+        //public Part ExplosivePart { get; set; }
+        public float nukeMass { get; set; }
         public float TimeIndex => Time.time - StartTime;
         public string flashModelPath { get; set; }
         public string shockModelPath { get; set; }
@@ -60,6 +63,7 @@ namespace BDArmory.FX
 
         private float EMPRadius = 100;
         private float scale = 1;
+        private float lightScale = 1;
         const int explosionLayerMask = (int)(LayerMasks.Parts | LayerMasks.Scenery | LayerMasks.EVA | LayerMasks.Unknown19 | LayerMasks.Unknown23 | LayerMasks.Wheels); // Why 19 and 23?
 
         static RaycastHit[] lineOfSightHits;
@@ -68,6 +72,16 @@ namespace BDArmory.FX
         public static List<Part> IgnoreParts;
         public static List<DestructibleBuilding> IgnoreBuildings;
         internal static readonly float ExplosionVelocity = 422.75f;
+        internal static float KerbinSeaLevelAtmDensity
+        {
+            get
+            {
+                if (_KerbinSeaLevelAtmDensity == 0) _KerbinSeaLevelAtmDensity = (float)FlightGlobals.GetBodyByName("Kerbin").atmDensityASL;
+                return _KerbinSeaLevelAtmDensity;
+            }
+        }
+        internal static float _KerbinSeaLevelAtmDensity = 0;
+        List<FXEmitter> fxEmitters = new();
 
         internal static HashSet<ExplosionSourceType> ignoreCasingFor = new HashSet<ExplosionSourceType> { ExplosionSourceType.Missile, ExplosionSourceType.Rocket };
 
@@ -92,16 +106,16 @@ namespace BDArmory.FX
             {
                 yieldCubeRoot = Mathf.Pow(yield, 1f / 3f);
                 startTime = Time.time;
-                if (FlightGlobals.getAtmDensity(FlightGlobals.getStaticPressure(transform.position),
-                                   FlightGlobals.getExternalTemperature(transform.position)) > 0)
-                    lastValidAtmDensity = (float)FlightGlobals.getAtmDensity(FlightGlobals.getStaticPressure(transform.position),
-                                       FlightGlobals.getExternalTemperature(transform.position));
+                if (FlightGlobals.getAtmDensity(FlightGlobals.getStaticPressure(Position),
+                                   FlightGlobals.getExternalTemperature(Position)) > 0)
+                    lastValidAtmDensity = (float)FlightGlobals.getAtmDensity(FlightGlobals.getStaticPressure(Position),
+                                       FlightGlobals.getExternalTemperature(Position));
                 hasDetonated = false;
 
                 //EMP output increases as the sqrt of yield (determined power) and prompt gamma output (~0.5% of yield)
                 //srf detonation is capped to about 16km, < 10km alt electrons qucikly absorbed by atmo.
                 //above 10km, emp radius can easily reach 100s of km. But that's no fun, so...
-                if (FlightGlobals.getAltitudeAtPos(transform.position) < 10000)
+                if (FlightGlobals.getAltitudeAtPos(Position) < 10000)
                 {
                     EMPRadius = BDAMath.Sqrt(yield) * 500;
                 }
@@ -110,22 +124,47 @@ namespace BDArmory.FX
                     EMPRadius = BDAMath.Sqrt(yield) * 1000;
                 }
 
+                fxEmitters.Clear();
                 pEmitters = gameObject.GetComponentsInChildren<KSPParticleEmitter>();
                 foreach (var pe in pEmitters)
                     if (pe != null)
                     {
                         pe.emit = true;
+                        pe.useWorldSpace = false; // Don't use worldspace, so that we can move the FX properly.
                         var emission = pe.ps.emission;
                         emission.enabled = true;
                         EffectBehaviour.AddParticleEmitter(pe);
                     }
-                LightFx = gameObject.GetComponent<Light>();
-                LightFx.range = 0;
+
+                if (BDArmorySettings.LightFX)
+                {
+                    LightFx = gameObject.GetComponent<Light>();
+                    LightFx.range = BDAMath.Sqrt(yield) * 500;
+                    lightScale = 8f * Mathf.Log(yield);
+                    LightFx.intensity = lightScale; // Reset light intensity.                    
+                }
+                //comment out the above and uncomment the below if !LIGHTFX = light range/intensity remains 0;
+                //LightFx = gameObject.GetComponent<Light>();
+                //LightFx.range = BDArmorySettings.LIGHTFX ? 0 : BDAMath.Sqrt(yield) * 500;
+                //lightScale = 8f * Mathf.Log(yield);
+                //LightFx.intensity = BDArmorySettings.LIGHTFX ? 0 : lightScale; // Reset light intensity.
+
                 audioSource = gameObject.GetComponent<AudioSource>();
                 if (!string.IsNullOrEmpty(SoundPath))
                 {
                     audioSource.PlayOneShot(audioClips[SoundPath]);
                 }
+            }
+            else
+            {
+                hasDetonated = false;
+                if (LightFx != null)
+                {
+                    LightFx.intensity = 0;
+                    LightFx.range = 0;
+                }
+                gameObject.SetActive(false);
+                return;
             }
         }
 
@@ -139,7 +178,8 @@ namespace BDArmory.FX
                     EffectBehaviour.RemoveParticleEmitter(pe);
                 }
             }
-            ExplosivePart = null; // Clear the Part reference.
+            fxEmitters.Clear();
+            //ExplosivePart = null; // Clear the Part reference.
             explosionEvents.Clear(); // Make sure we don't have any left over events leaking memory.
             explosionEventsPreProcessing.Clear();
             explosionEventsPartsAdded.Clear();
@@ -255,9 +295,9 @@ namespace BDArmory.FX
 
         private bool ProcessPartEvent(Part part, string sourceVesselName, List<NukeHitEvent> eventList, List<Part> partsAdded)
         {
-            Ray LoSRay = new Ray(transform.position, part.transform.position - transform.position);
+            Ray LoSRay = new Ray(Position, part.transform.position - Position);
             RaycastHit hit;
-            var distToG0 = Math.Max((transform.position - part.transform.position).magnitude, 1f);
+            var distToG0 = Math.Max((Position - part.transform.position).magnitude, 1f);
             if (Physics.Raycast(LoSRay, out hit, distToG0, explosionLayerMask)) // only add impulse to parts with line of sight to detonation
             {
                 KerbalEVA eva = hit.collider.gameObject.GetComponentUpwards<KerbalEVA>();
@@ -305,23 +345,24 @@ namespace BDArmory.FX
         {
             if (!gameObject.activeInHierarchy) return;
 
-            if (HighLogic.LoadedSceneIsFlight)
+            if (hasDetonated)
             {
-                if (hasDetonated)
+                if (LightFx != null && BDArmorySettings.LightFX)
                 {
-                    if (LightFx != null) LightFx.intensity -= 12 * scale * Time.deltaTime;
+                    LightFx.intensity -= 3 * lightScale * Time.deltaTime;
+                }
+                if (TimeIndex > 0.3f && pEmitters != null) // 0.3s seems to be enough to always show the explosion, but 0.2s isn't for some reason.
+                {
                     if (TimeIndex > 0.3f && pEmitters != null) // 0.3s seems to be enough to always show the explosion, but 0.2s isn't for some reason.
                     {
-                        if (TimeIndex > 0.3f && pEmitters != null) // 0.3s seems to be enough to always show the explosion, but 0.2s isn't for some reason.
+                        foreach (var pe in pEmitters)
                         {
-                            foreach (var pe in pEmitters)
-                            {
-                                if (pe == null) continue;
-                                pe.emit = false;
-                            }
+                            if (pe == null) continue;
+                            pe.emit = false;
                         }
                     }
                 }
+                foreach (var fx in fxEmitters) if (fx.gameObject.activeSelf) fx.Position = Position; // Update FX emitter positions.
             }
         }
 
@@ -332,7 +373,12 @@ namespace BDArmory.FX
             //floating origin and velocity offloading corrections
             if (BDKrakensbane.IsActive)
             {
-                transform.position -= BDKrakensbane.FloatingOriginOffsetNonKrakensbane;
+                Position -= BDKrakensbane.FloatingOriginOffsetNonKrakensbane;
+            }
+            { // Explosion centre velocity depends on atmospheric density relative to Kerbin sea level.
+                var atmDensity = (float)FlightGlobals.getAtmDensity(FlightGlobals.getStaticPressure(Position), FlightGlobals.getExternalTemperature(Position));
+                Velocity /= 1 + atmDensity / KerbinSeaLevelAtmDensity;
+                Position += Velocity * TimeWarp.fixedDeltaTime; // Krakensbane is already accounted for above.
             }
             if (Time.time - startTime > detonationTimer)
             {
@@ -341,12 +387,12 @@ namespace BDArmory.FX
                     hasDetonated = true;
                     CalculateBlastEvents();
 
-                    LightFx = gameObject.GetComponent<Light>();
-                    LightFx.range = thermalRadius;
-                    LightFx.intensity = thermalRadius / 3f;
                     if (lastValidAtmDensity < 0.05)
                     {
-                        FXEmitter.CreateFX(transform.position, scale, flashModelPath, "", 0.3f);
+                        if (!string.IsNullOrWhiteSpace(flashModelPath))
+                            fxEmitters.Add(FXEmitter.CreateFX(Position, scale * 50f, flashModelPath, "", 0.4f, 0.4f));
+                        if (!string.IsNullOrWhiteSpace(shockModelPath))
+                            fxEmitters.Add(FXEmitter.CreateFX(Position, scale * 14f, shockModelPath, "", 0.2f, 0.6f));
                     }
                     else
                     {
@@ -354,16 +400,16 @@ namespace BDArmory.FX
                         //scaling calc is roughly SqRt( 400 * (6x))
                         //fireball diameter is 59 * Mathf.Pow(yield, 0.4f), apparently?
                         if (!string.IsNullOrWhiteSpace(flashModelPath))
-                            FXEmitter.CreateFX(transform.position, scale, flashModelPath, "", 0.3f, -1, default, true);
+                            fxEmitters.Add(FXEmitter.CreateFX(Position, scale, flashModelPath, "", 0.3f, -1, default, true));
                         if (!string.IsNullOrWhiteSpace(shockModelPath))
-                            FXEmitter.CreateFX(transform.position, scale * lastValidAtmDensity, shockModelPath, "", 0.3f, -1, default, true);
+                            fxEmitters.Add(FXEmitter.CreateFX(Position, scale * lastValidAtmDensity, shockModelPath, "", 0.3f, -1, default, true));
                         if (!string.IsNullOrWhiteSpace(blastModelPath))
-                            FXEmitter.CreateFX(transform.position, scale, blastModelPath, blastSoundPath, 1.5f, Mathf.Clamp(30 * scale, 30f, 90f), default, true);
+                            fxEmitters.Add(FXEmitter.CreateFX(Position, scale, blastModelPath, blastSoundPath, 1.5f, Mathf.Clamp(30 * scale, 30f, 90f), default, true));
 
-                        if (BodyUtils.GetRadarAltitudeAtPos(transform.position) < 200 * scale)
+                        if (BodyUtils.GetRadarAltitudeAtPos(Position) < 200 * scale)
                         {
-                            double latitudeAtPos = FlightGlobals.currentMainBody.GetLatitude(transform.position);
-                            double longitudeAtPos = FlightGlobals.currentMainBody.GetLongitude(transform.position);
+                            double latitudeAtPos = FlightGlobals.currentMainBody.GetLatitude(Position);
+                            double longitudeAtPos = FlightGlobals.currentMainBody.GetLongitude(Position);
                             double altitude = FlightGlobals.currentMainBody.TerrainAltitude(latitudeAtPos, longitudeAtPos);
                             if (!string.IsNullOrWhiteSpace(plumeModelPath))
                                 FXEmitter.CreateFX(FlightGlobals.currentMainBody.GetWorldSurfacePosition(latitudeAtPos, longitudeAtPos, altitude), Mathf.Clamp(scale, 0.01f, 3f), plumeModelPath, "", Mathf.Clamp(30 * scale, 30f, 90f), Mathf.Clamp(30 * scale, 30f, 90f), default, true, true);
@@ -393,6 +439,12 @@ namespace BDArmory.FX
 
             if (hasDetonated && explosionEvents.Count == 0 && TimeIndex > MaxTime)
             {
+                hasDetonated = false;
+                if (LightFx != null)
+                {
+                    LightFx.intensity = 0;
+                    LightFx.range = 0;
+                }
                 gameObject.SetActive(false);
                 return;
             }
@@ -404,7 +456,7 @@ namespace BDArmory.FX
             //Debug.Log("[BDArmory.NukeFX] Beginning building hit");
             if (building && building.IsIntact)
             {
-                var distToEpicenter = Mathf.Max((transform.position - building.transform.position).magnitude, 1f);
+                var distToEpicenter = Mathf.Max((Position - building.transform.position).magnitude, 1f);
                 var blastImpulse = Mathf.Pow(3.01f * 1100f / distToEpicenter, 1.25f) * 6.894f * Mathf.Max(lastValidAtmDensity, 0.05f) * yieldCubeRoot;
                 // Debug.Log($"[BDArmory.NukeFX]: Building hit; distToG0: {distToEpicenter}, yield: {yield}, building: {building.name}, lastValidAtmDensity: {lastValidAtmDensity}, impulse: {blastImpulse}");
 
@@ -426,7 +478,7 @@ namespace BDArmory.FX
             Part part = eventToExecute.Part;
             Rigidbody rb = part.Rigidbody;
             //var realDistance = eventToExecute.Distance; //this provides a snapshot of distance at time of detonation; with multi-second lag between detonation and blastwave reaching target, target could fly outzide blastzone
-            var realDistance = Math.Max((transform.position - part.transform.position).magnitude, 1f);
+            var realDistance = Math.Max((Position - part.transform.position).magnitude, 1f);
             if (realDistance > thermalRadius) return; //craft has flown out of blast zone by time blastfront has arrived at original distance
             var vesselMass = part.vessel.totalMass;
             if (vesselMass == 0) vesselMass = part.mass; // Sometimes if the root part is the only part of the vessel, then part.vessel.totalMass is 0, despite the part.mass not being 0.
@@ -443,7 +495,7 @@ namespace BDArmory.FX
                     if (lastValidAtmDensity > 0.1)
                         blastImpulse = Mathf.Pow(3.01f * 1100f / realDistance, 1.25f) * 6.894f * lastValidAtmDensity * yieldCubeRoot; // * (radiativeArea / 3f); pascals/m isn't going to increase if a larger surface area, it's still going go be same force
                     else
-                        blastImpulse = (part.mass * 15295.74) / (4 * Math.PI * Math.Pow(realDistance, 2.0)) * (part.radiativeArea / 3.0);
+                        blastImpulse = (nukeMass * 15295.74) / (4 * Math.PI * Math.Pow(realDistance, 2.0));// * (part.radiativeArea / 3.0);
                     if (blastImpulse > 0)
                     {
                         float damage = 0;
@@ -458,9 +510,10 @@ namespace BDArmory.FX
                         {
                             if (!ProjectileUtils.CalculateExplosiveArmorDamage(part, blastImpulse, realDistance, SourceVesselName, eventToExecute.Hit, ExplosionSource, thermalRadius - realDistance)) //false = armor blowthrough
                             {
-                                damage = part.AddExplosiveDamage(blastDamage, 1, ExplosionSource, 1);
+                                damage = ProjectileUtils.IsArmorPart(part) ? blastDamage : part.AddExplosiveDamage(blastDamage, 1, ExplosionSource, 1); //armor panels return damage = 0, so adding exception so they still score properly
+                                // no damage reduction from very thick armor, but no multiplier from damage type, either, should balance out. And any comp that allows nukes probably isn't going to be weighting DamageIn...
                             }
-                            if (damage > 0) //else damage from spalling done in CalcExplArmorDamage
+                            if (damage > 0) 
                             {
                                 if (BDArmorySettings.BATTLEDAMAGE)
                                 {
@@ -491,7 +544,7 @@ namespace BDArmory.FX
                                 switch (ExplosionSource)
                                 {
                                     case ExplosionSourceType.Missile:
-                                        BDACompetitionMode.Instance.Scores.RegisterMissileDamage(aName, tName, damage);
+                                        BDACompetitionMode.Instance.Scores.RegisterMissileDamage(aName, tName, damage); //FIXME/TODO - damage should probably correlate in some way to armor mass lost/damage to armor, instead of '0'
                                         break;
                                     case ExplosionSourceType.BattleDamage:
                                         BDACompetitionMode.Instance.Scores.RegisterBattleDamage(aName, part.vessel, damage);
@@ -509,7 +562,7 @@ namespace BDArmory.FX
                             else
                             {
                                 if (BDArmorySettings.DEBUG_DAMAGE) Debug.Log("[BDArmory.NukeFX]: Applying " + blastImpulse.ToString("0.0") + " impulse to " + part + " of mass " + part.mass + " at distance " + realDistance + "m");
-                                rb.AddForceAtPosition((part.transform.position - transform.position).normalized * ((float)blastImpulse * (radiativeArea / 3f)), part.transform.position, ForceMode.Impulse);
+                                rb.AddForceAtPosition((part.transform.position - Position).normalized * ((float)blastImpulse * (radiativeArea / 3f)), part.transform.position, ForceMode.Impulse);
                             }
                         }
                         // Add Reverse Negative Event
@@ -528,7 +581,7 @@ namespace BDArmory.FX
                     }
                     //part.skinTemperature += fluence * 3370000000 / (4 * Math.PI * (realDistance * realDistance)) * radiativeArea / 2; // Fluence scales linearly w/ yield, 1 Kt will produce between 33 TJ and 337 kJ at 0-1000m,
                     part.skinTemperature += (fluence * (337000000 * BDArmorySettings.EXP_DMG_MOD_MISSILE) / (4 * Math.PI * (realDistance * realDistance))); // everything gets heated via atmosphere
-                    if (isEMP)
+                    if (isEMP && !VesselModuleRegistry.ignoredVesselTypes.Contains(part.vesselType))
                     {
                         if (part == part.vessel.rootPart) //don't apply EMP buildup per part
                         {
@@ -578,7 +631,7 @@ namespace BDArmory.FX
             if (!nukePool.ContainsKey(ModelPath) || nukePool[ModelPath] == null)
             {
                 GameObject templateFX;
-                if (!String.IsNullOrEmpty(ModelPath))
+                if (!string.IsNullOrEmpty(ModelPath))
                 {
                     templateFX = GameDatabase.Instance.GetModel(ModelPath);
                     if (templateFX == null)
@@ -594,18 +647,33 @@ namespace BDArmory.FX
                 eFx.audioSource.maxDistance = radius * 3;
                 eFx.audioSource.spatialBlend = 1;
                 eFx.audioSource.volume = 5;
-                eFx.LightFx = templateFX.AddComponent<Light>();
-                eFx.LightFx.color = GUIUtils.ParseColor255("255,238,184,255");
-                eFx.LightFx.intensity = radius / 3;
-                eFx.LightFx.shadows = LightShadows.None;
+                if (BDArmorySettings.LightFX) //comment this if check out if swapping out for !LightFX = light range/intensity remains 0
+                {
+                    eFx.LightFx = templateFX.AddComponent<Light>();
+                    eFx.LightFx.color = GUIUtils.ParseColor255("255,238,184,255");
+                    eFx.LightFx.range = BDArmorySettings.LightFX ? 0 : 2000;
+                    eFx.LightFx.intensity = BDArmorySettings.LightFX ? 0 : 8f; // Reset light intensity.
+                    eFx.LightFx.shadows = LightShadows.None;
+                }
+                else
+                {
+                    Light[] bakedLights = templateFX.GetComponentsInChildren<Light>(); //remove any Light components intrinsic to the Model
+                    foreach (var bL in bakedLights)
+                        if (bL != null)
+                        {
+                            Destroy(bL);
+                        }
+                }
                 templateFX.SetActive(false);
                 nukePool[ModelPath] = ObjectPool.CreateObjectPool(templateFX, 10, true, true, 0f, false);
             }
         }
         public static void CreateExplosion(Vector3 position, ExplosionSourceType explosionSourceType, string sourceVesselName, string sourceWeaponName = "Nuke",
             float delay = 2.5f, float blastRadius = 750, float Yield = 0.05f, float thermalShock = 0.05f, bool emp = true, string blastSound = "",
-            string flashModel = "", string shockModel = "", string blastModel = "", string plumeModel = "", string debrisModel = "", string ModelPath = "", string soundPath = "")
+            string flashModel = "", string shockModel = "", string blastModel = "", string plumeModel = "", string debrisModel = "", string ModelPath = "", string soundPath = "",
+            Part nukePart = null, Part hitPart = null, Vector3 sourceVelocity = default)
         {
+            if (blastRadius < 100) blastRadius = 100;
             SetupPool(ModelPath, soundPath, blastRadius);
 
             Quaternion rotation;
@@ -615,6 +683,8 @@ namespace BDArmory.FX
             newExplosion.transform.SetPositionAndRotation(position, rotation);
 
             eFx.Position = position;
+            sourceVelocity = sourceVelocity != default ? sourceVelocity : (nukePart != null && nukePart.rb != null) ? nukePart.rb.velocity + BDKrakensbane.FrameVelocityV3f : default; // Use the explosive part's velocity if the sourceVelocity isn't specified.
+            eFx.Velocity = (hitPart != null && hitPart.rb != null) ? hitPart.rb.velocity + BDKrakensbane.FrameVelocityV3f : sourceVelocity; // sourceVelocity is the real velocity w/o offloading.
             eFx.ExplosionSource = explosionSourceType;
             eFx.SourceVesselName = sourceVesselName;
             eFx.ReportingName = sourceWeaponName;
@@ -631,12 +701,27 @@ namespace BDArmory.FX
 
             eFx.yield = Yield;
             eFx.fluence = thermalShock;
+            eFx.nukeMass = nukePart != null ? nukePart.mass : Mathf.Pow(Yield, 1 / 3) / 10;
             eFx.isEMP = emp;
             eFx.detonationTimer = delay;
             newExplosion.SetActive(true);
             eFx.audioSource = newExplosion.GetComponent<AudioSource>();
             eFx.SoundPath = soundPath;
             newExplosion.SetActive(true);
+        }
+        public static void DisableAllExplosionFX()
+        {
+            if (nukePool == null) return;
+            if (BDArmorySettings.DEBUG_OTHER) Debug.Log($"[BDArmory.NukeFx]: Setting {nukePool.Values.Where(pool => pool != null && pool.pool != null).Sum(pool => pool.pool.Count(fx => fx != null && fx.activeInHierarchy))} explosion FX inactive.");
+            foreach (var pool in nukePool.Values)
+            {
+                if (pool == null || pool.pool == null) continue;
+                foreach (var fx in pool.pool)
+                {
+                    if (fx == null) continue;
+                    fx.SetActive(false);
+                }
+            }
         }
     }
 

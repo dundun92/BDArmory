@@ -31,6 +31,10 @@ namespace BDArmory.Radar
         public string rotationTransformName = string.Empty;
         Transform rotationTransform;
 
+        [KSPField]
+        public string radarTransformName = string.Empty;
+        Transform radarTransform;
+
         #endregion General Configuration
 
         #region Radar Capabilities
@@ -41,6 +45,11 @@ namespace BDArmory.Radar
 
         [KSPField]
         public double resourceDrain = 0.825;        //resource (EC/sec) usage of active radar
+
+        [KSPField] 
+        public string resourceName = "ElectricCharge";
+
+        private int resourceID;
 
         [KSPField]
         public bool omnidirectional = true;			//false=boresight only
@@ -94,8 +103,34 @@ namespace BDArmory.Radar
         public FloatCurve radarLockTrackCurve = new FloatCurve();		//FloatCurve defining at what range which RCS size can be locked/tracked
 
         [KSPField]
+        public FloatCurve radarVelocityGate = new FloatCurve();		//FloatCurve defining the reduction in received RCS due to a doppler gate
+
+        [KSPField]
+        public FloatCurve radarRangeGate = new FloatCurve();		//FloatCurve defining the reduction in received RCS due to a range gate
+
+        [KSPField]
+        public float radarMinTrackSCR = 1f;
+
+        [KSPField]
         public float radarGroundClutterFactor = 0.25f; //Factor defining how effective the radar is for look-down, compensating for ground clutter (0=ineffective, 1=fully effective)
                                                        //default to 0.25, so all cross sections of landed/splashed/submerged vessels are reduced to 1/4th, as these vessel usually a quite large
+        [KSPField]
+        public float radarChaffClutterFactor = 1.0f;     //Factor defining how effective the radar is at compensating for enemy chaff (0 = ineffective, 1 = no decrease in signal position/strength)
+                                                         //default to 1, since that's legacy behavior. Relevant for guiding SARH ordinance.
+        [KSPField]
+        public int sonarType = 0; //0 = Radar; 1 == Active Sonar; 2 == Passive Sonar
+
+        [KSPField(isPersistant = true, guiActive = true, guiActiveEditor = true, guiName = "#LOC_BDArmory_DynamicRadar", advancedTweakable = true),//Disable Radar vs ARMs
+            UI_Toggle(enabledText = "#LOC_BDArmory_true", disabledText = "#LOC_BDArmory_false", scene = UI_Scene.All),]//Starboard (CW)--Port (CCW)
+        public bool DynamicRadar = true;
+
+        public enum SonarModes
+        {
+            None = 0,
+            Active = 1,
+            passive = 2
+        }
+        public SonarModes sonarMode = SonarModes.None;
 
         #endregion Radar Capabilities
 
@@ -188,6 +223,7 @@ namespace BDArmory.Radar
         }
 
         private TargetSignatureData[] attemptedLocks;
+        //private bool[] lockSuccesses; // Removed as it was deemed unecessary
         private List<TargetSignatureData> lockedTargets;
 
         public TargetSignatureData lockedTarget
@@ -229,6 +265,25 @@ namespace BDArmory.Radar
         public float radarMaxDistanceLockTrack
         {
             get { return radarLockTrackCurve.maxTime; }
+        }
+
+        public float radarMaxRangeGate
+        {
+            get { return radarRangeGate.maxTime; }
+        }
+        public float radarMinRangeGate
+        {
+            get { return radarRangeGate.minTime; }
+        }
+
+        public float radarMaxVelocityGate
+        {
+            get { return radarVelocityGate.maxTime; }
+        }
+
+        public float radarMinVelocityGate
+        {
+            get { return radarVelocityGate.minTime; }
         }
 
         //linked vessels
@@ -285,6 +340,10 @@ namespace BDArmory.Radar
         {
             Events["Toggle"].guiName = radarEnabled ? StringUtils.Localize("#autoLOC_bda_1000000") : StringUtils.Localize("#autoLOC_bda_1000001");		// #autoLOC_bda_1000000 = Disable Radar		// #autoLOC_bda_1000001 = Enable Radar
         }
+        void Start()
+        {
+            resourceID = PartResourceLibrary.Instance.GetDefinition(resourceName).id;
+        }
 
         public void EnsureVesselRadarData()
         {
@@ -313,7 +372,10 @@ namespace BDArmory.Radar
             if (mf != null)
             {
                 if (mf.guardMode) vesselRadarData.LinkAllRadars();
-                mf._radarsEnabled = true;
+                if (sonarMode == SonarModes.None)
+                    mf._radarsEnabled = true;
+                else if (sonarMode == SonarModes.Active)
+                    mf._sonarsEnabled = true;
             }
         }
 
@@ -349,19 +411,33 @@ namespace BDArmory.Radar
             {
                 if (mf.radars.Count > 1)
                 {
+                    bool detectorsEnabled = false;
                     using (List<ModuleRadar>.Enumerator rd = mf.radars.GetEnumerator())
                         while (rd.MoveNext())
                         {
-                            if (rd.Current == null) continue;
-                            mf._radarsEnabled = false;
+                            if (rd.Current == null || rd.Current.sonarMode != sonarMode) continue;
+                            //mf._radarsEnabled = false;
+                            detectorsEnabled = false;
                             if (rd.Current != this && rd.Current.radarEnabled)
                             {
-                                mf._radarsEnabled = true;
+                                //mf._radarsEnabled = true;
+                                detectorsEnabled = true;
                                 break;
                             }
                         }
+
+                    if (sonarMode == SonarModes.None)
+                        mf._radarsEnabled = detectorsEnabled;
+                    else if (sonarMode == SonarModes.Active)
+                        mf._sonarsEnabled = detectorsEnabled;
                 }
-                else mf._radarsEnabled = false;
+                else
+                {
+                    if (sonarMode == SonarModes.None)
+                        mf._radarsEnabled = false;
+                    else if (sonarMode == SonarModes.Active)
+                        mf._sonarsEnabled = false;
+                }
             }
         }
 
@@ -416,22 +492,27 @@ namespace BDArmory.Radar
                     : directionalFieldOfView / (scanRotationSpeed + 5);
 
                 rwrType = (RadarWarningReceiver.RWRThreatTypes)rwrThreatType;
+                sonarMode = (SonarModes)sonarType;
                 if (rwrType == RadarWarningReceiver.RWRThreatTypes.Sonar)
                     signalPersistTimeForRwr = RadarUtils.ACTIVE_MISSILE_PING_PERISTS_TIME;
                 else
+                {
                     signalPersistTimeForRwr = signalPersistTime / 2;
+                }
 
                 if (rotationTransformName != string.Empty)
                 {
                     rotationTransform = part.FindModelTransform(rotationTransformName);
                 }
+                radarTransform = radarTransformName != string.Empty ? part.FindModelTransform(radarTransformName) : part.transform;
 
-                attemptedLocks = new TargetSignatureData[3];
+                attemptedLocks = new TargetSignatureData[maxLocks];
+                //lockSuccesses = new bool[maxLocks];
                 TargetSignatureData.ResetTSDArray(ref attemptedLocks);
                 lockedTargets = new List<TargetSignatureData>();
 
                 referenceTransform = (new GameObject()).transform;
-                referenceTransform.parent = transform;
+                referenceTransform.parent = radarTransform;
                 referenceTransform.localPosition = Vector3.zero;
 
                 List<ModuleTurret>.Enumerator turr = part.FindModulesImplementing<ModuleTurret>().GetEnumerator();
@@ -561,13 +642,13 @@ namespace BDArmory.Radar
                     {
                         referenceTransform.position = part.transform.position;
                         referenceTransform.rotation =
-                            Quaternion.LookRotation(VectorUtils.GetNorthVector(transform.position, vessel.mainBody),
+                            Quaternion.LookRotation(VectorUtils.GetNorthVector(radarTransform.position, vessel.mainBody),
                                 VectorUtils.GetUpDirection(transform.position));
                     }
                     else
                     {
                         referenceTransform.position = part.transform.position;
-                        referenceTransform.rotation = Quaternion.LookRotation(part.transform.up,
+                        referenceTransform.rotation = Quaternion.LookRotation(radarTransform.up,
                             VectorUtils.GetUpDirection(referenceTransform.position));
                     }
                     //UpdateInputs();
@@ -698,6 +779,7 @@ namespace BDArmory.Radar
 
         public bool TryLockTarget(Vector3 position, Vessel targetVessel = null)
         {
+            //need a way to see what companion radars on the craft have already locked, so multiple radars aren't stacking locks on the same couple target craft? Or is updating attemptedLocks to missileFire.maxradarLocks enough?
             if (!canLock)
             {
                 return false;
@@ -724,12 +806,12 @@ namespace BDArmory.Radar
             {
                 angle = -angle;
             }
-            //TargetSignatureData.ResetTSDArray(ref attemptedLocks);
+            TargetSignatureData.ResetTSDArray(ref attemptedLocks);
             RadarUtils.RadarUpdateScanLock(weaponManager, angle, referenceTransform, lockAttemptFOV, referenceTransform.position, this, true, ref attemptedLocks, signalPersistTime);
 
             for (int i = 0; i < attemptedLocks.Length; i++)
             {
-                if (attemptedLocks[i].exists && (attemptedLocks[i].predictedPosition - position).sqrMagnitude < 40 * 40)
+                if (attemptedLocks[i].exists && (attemptedLocks[i].predictedPosition - position).sqrMagnitude < 40 * 40) //(lockSuccesses[i] && attemptedLocks[i].exists && (attemptedLocks[i].predictedPosition - position).sqrMagnitude < 40 * 40)
                 {
                     // If locked onto a vessel that was not our target, return false
                     if ((attemptedLocks[i].vessel != null) && (targetVessel != null) && (attemptedLocks[i].vessel != targetVessel))
@@ -748,6 +830,7 @@ namespace BDArmory.Radar
 
                     vesselRadarData.AddRadarContact(this, lockedTarget, true);
                     vesselRadarData.UpdateLockedTargets();
+                    attemptedLocks[i] = TargetSignatureData.noTarget;
                     return true;
                 }
             }
@@ -934,6 +1017,16 @@ namespace BDArmory.Radar
             }
         }
 
+        public void RefreshLockArray()
+        {
+            if (wpmr != null)
+            {
+                attemptedLocks = new TargetSignatureData[wpmr.MaxradarLocks];
+                TargetSignatureData.ResetTSDArray(ref attemptedLocks);
+                //lockSuccesses = new bool[wpmr.MaxradarLocks];
+            }
+        }
+
         void SlaveTurrets()
         {
             using (var mtc = VesselModuleRegistry.GetModules<ModuleTargetingCamera>(vessel).GetEnumerator())
@@ -1006,7 +1099,7 @@ namespace BDArmory.Radar
                 if (vrd.Current == null) continue;
                 if (vrd.Current.canReceiveRadarData && vrd.Current.vessel != contactData.vessel)
                 {
-                    vrd.Current.AddRadarContact(this, contactData, _locked);
+                    vrd.Current.AddRadarContact(this, contactData, _locked, true);
                 }
             }
             vrd.Dispose();
@@ -1138,6 +1231,11 @@ namespace BDArmory.Radar
                     output.AppendLine(StringUtils.Localize("#autoLOC_bda_1000033", radarLockTrackCurve.Evaluate(radarMaxDistanceLockTrack), radarMaxDistanceLockTrack));
                 else
                     output.AppendLine(StringUtils.Localize("#autoLOC_bda_1000034"));
+
+                if (sonarType == 1)
+                    output.AppendLine(StringUtils.Localize("#autoLOC_bda_1000039"));
+                if (sonarType == 2)
+                    output.AppendLine(StringUtils.Localize("#autoLOC_bda_1000040"));
                 output.AppendLine(StringUtils.Localize("#autoLOC_bda_1000035", radarGroundClutterFactor));
             }
 
@@ -1152,12 +1250,13 @@ namespace BDArmory.Radar
             }
 
             double drainAmount = resourceDrain * TimeWarp.fixedDeltaTime;
-            double chargeAvailable = part.RequestResource("ElectricCharge", drainAmount, ResourceFlowMode.ALL_VESSEL);
+            double chargeAvailable = part.RequestResource(resourceID, drainAmount, ResourceFlowMode.ALL_VESSEL);
             if (chargeAvailable < drainAmount * 0.95f)
             {
-                ScreenMessages.PostScreenMessage(StringUtils.Localize("#autoLOC_bda_1000016"), 5.0f, ScreenMessageStyle.UPPER_CENTER);		// #autoLOC_bda_1000016 = Radar Requires EC
+                ScreenMessages.PostScreenMessage($"{part.partInfo.title} {StringUtils.Localize("#autoLOC_244332")} {PartResourceLibrary.Instance.GetDefinition(resourceName).displayName}", 5.0f, ScreenMessageStyle.UPPER_CENTER);		// [part Title] Requires [localized resource name]
                 DisableRadar();
             }
         }
     }
+
 }

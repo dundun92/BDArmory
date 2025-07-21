@@ -25,7 +25,7 @@ namespace BDArmory.Settings
 
             ConfigNode settings = fileNode.GetNode("BDAWindows");
 
-            IEnumerator<FieldInfo> field = typeof(BDArmorySetup).GetFields().AsEnumerable().GetEnumerator();
+            IEnumerator<FieldInfo> field = typeof(BDArmorySetup).GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic).AsEnumerable().GetEnumerator(); // Include both public and private fields.
             while (field.MoveNext())
             {
                 if (field.Current == null) continue;
@@ -44,14 +44,14 @@ namespace BDArmory.Settings
 
             ConfigNode settings = fileNode.GetNode("BDAWindows");
 
-            IEnumerator<FieldInfo> field = typeof(BDArmorySetup).GetFields().AsEnumerable().GetEnumerator();
+            IEnumerator<FieldInfo> field = typeof(BDArmorySetup).GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic).AsEnumerable().GetEnumerator(); // Include both public and private fields.
             while (field.MoveNext())
             {
                 if (field.Current == null) continue;
                 if (!field.Current.IsDefined(typeof(BDAWindowSettingsField), false)) continue;
                 if (!settings.HasValue(field.Current.Name)) continue;
 
-                object parsedValue = BDAPersistentSettingsField.ParseValue(field.Current.FieldType, settings.GetValue(field.Current.Name));
+                object parsedValue = BDAPersistentSettingsField.ParseValue(field.Current.FieldType, settings.GetValue(field.Current.Name), field.Current.Name);
                 if (parsedValue != null)
                 {
                     field.Current.SetValue(null, parsedValue);

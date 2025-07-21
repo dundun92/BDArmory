@@ -31,12 +31,21 @@ namespace BDArmory.Radar
         public string rotationTransformName = string.Empty;
         Transform rotationTransform;
 
+        [KSPField]
+        public string irstTransformName = string.Empty;
+        Transform irstTransform;
+
         #endregion General Configuration
 
         #region Capabilities
 
         [KSPField]
         public double resourceDrain = 0.825;        //resource (EC/sec) usage of active irst
+
+        [KSPField] 
+        public string resourceName = "ElectricCharge";
+
+        private int resourceID;
 
         [KSPField]
         public bool omnidirectional = true;			//false=boresight only
@@ -180,6 +189,10 @@ namespace BDArmory.Radar
         {
             Events["Toggle"].guiName = irstEnabled ? StringUtils.Localize("#autoLOC_bda_1000036") : StringUtils.Localize("#autoLOC_bda_1000037");		// fixme - fix localizations
         }
+        void Start()
+        {
+            resourceID = PartResourceLibrary.Instance.GetDefinition(resourceName).id;
+        }
 
         public void EnsureVesselRadarData() 
         {
@@ -202,8 +215,13 @@ namespace BDArmory.Radar
             irstEnabled = true;
 
             var mf = VesselModuleRegistry.GetMissileFire(vessel, true);
+            if (mf != null && vesselRadarData != null) vesselRadarData.weaponManager = mf;
             UpdateToggleGuiName();
             vesselRadarData.AddIRST(this);
+            if (mf != null)
+            {
+                mf._irstsEnabled = true;
+            }
         }
 
         public void DisableIRST()
@@ -220,6 +238,25 @@ namespace BDArmory.Radar
                 {
                     BDATargetManager.ClearRadarReport(loadedvessels.Current, weaponManager); //reset radar contact status
                 }
+            var mf = VesselModuleRegistry.GetMissileFire(vessel, true);
+            if (mf != null)
+            {
+                if (mf.irsts.Count > 1)
+                {
+                    using (List<ModuleIRST>.Enumerator irst = mf.irsts.GetEnumerator())
+                        while (irst.MoveNext())
+                        {
+                            if (irst.Current == null) continue;
+                            mf._irstsEnabled = false;
+                            if (irst.Current != this && irst.Current.irstEnabled)
+                            {
+                                mf._irstsEnabled = true;
+                                break;
+                            }
+                        }
+                }
+                else mf._irstsEnabled = false;
+            }
         }
 
         void OnDestroy()
@@ -255,9 +292,9 @@ namespace BDArmory.Radar
                 {
                     rotationTransform = part.FindModelTransform(rotationTransformName);
                 }
-
+                irstTransform = irstTransformName != string.Empty ? part.FindModelTransform(irstTransformName) : part.transform;
                 referenceTransform = (new GameObject()).transform;
-                referenceTransform.parent = transform;
+                referenceTransform.parent = irstTransform;
                 referenceTransform.localPosition = Vector3.zero;
 
                 // fill TempSensitivityCurve with default values if not set by part config:
@@ -344,13 +381,13 @@ namespace BDArmory.Radar
                     {
                         referenceTransform.position = part.transform.position;
                         referenceTransform.rotation =
-                            Quaternion.LookRotation(VectorUtils.GetNorthVector(transform.position, vessel.mainBody),
+                            Quaternion.LookRotation(VectorUtils.GetNorthVector(irstTransform.position, vessel.mainBody),
                                 VectorUtils.GetUpDirection(transform.position));
                     }
                     else
                     {
                         referenceTransform.position = part.transform.position;
-                        referenceTransform.rotation = Quaternion.LookRotation(part.transform.up,
+                        referenceTransform.rotation = Quaternion.LookRotation(irstTransform.up,
                             VectorUtils.GetUpDirection(referenceTransform.position));
                     }
                     //UpdateInputs();
@@ -481,10 +518,10 @@ namespace BDArmory.Radar
             }
 
             double drainAmount = resourceDrain * TimeWarp.fixedDeltaTime;
-            double chargeAvailable = part.RequestResource("ElectricCharge", drainAmount, ResourceFlowMode.ALL_VESSEL);
+            double chargeAvailable = part.RequestResource(resourceID, drainAmount, ResourceFlowMode.ALL_VESSEL);
             if (chargeAvailable < drainAmount * 0.95f)
             {
-                ScreenMessages.PostScreenMessage(StringUtils.Localize("#autoLOC_bda_1000016"), 5.0f, ScreenMessageStyle.UPPER_CENTER);		// #autoLOC_bda_1000016 = Radar Requires EC
+                ScreenMessages.PostScreenMessage($"{part.partInfo.title} {StringUtils.Localize("#autoLOC_244332")} {PartResourceLibrary.Instance.GetDefinition(resourceName).displayName}", 5.0f, ScreenMessageStyle.UPPER_CENTER);     // [part Title] Requires [localized resource name]
                 DisableIRST();
             }
         }

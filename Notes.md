@@ -30,6 +30,7 @@ Outdated, probably to be deleted:
 - Avoid Linq expressions in critical areas. However, some Linq queries can be parallelised (PLINQ) with ".AsParallel()" and sequentialised with ".AsSequential()". Also, ".ForEach()" does a merge to sequential, while ".ForAll()" doesn't.
 - Avoid excessive object references in structs and classes and prefer identifiers instead — affects GC checks.
 - Trigger GC manually at appropriate times (System.GC.Collect()) when it won't affect gameplay, e.g., when resetting competition stuff.
+- Intel and AMD have hardware support for sqrt, but M1 Macs don't, so we do need to avoid using sqrt in frequently used functions.
 
 - Bad GC routines:
     - part.explode when triggering new vessels causes massive GC alloc, but it's in base KSP, so there's not much that can be done.
@@ -41,3 +42,18 @@ Outdated, probably to be deleted:
     - LoadedVesselSwitcher.AddVesselSwitcherWindowEntry -> string manipulation
     - CamTools.SetDoppler -> get_name
     - CameraTools::CTPartAudioController.Awake
+
+### Shader Compilation
+- Shaders should be compiled using Unity 2018.4.36f1 to be compatible with KSP 1.9.1.
+- To compile a shader bundle:
+    1. Install AssetBundle Browser: https://docs.unity3d.com/Manual/AssetBundles-Browser.html
+    2. Open a Unity project (an empty one is fine).
+    3. Import the shaders (if not already done) via "Assets->Import New Asset...".
+    4. Go to File->Build Settings. Pick Windows/Mac/Linux based on what bundle you plan to make.
+    5. Go to "Window->AssetBundle Browser".
+    6. Drag the 4 shader assets from the "Project" tab in the main Unity window into the AssetBundle Browser window.
+    7. Rename the asset bundle to match the build target for loading in BDAShaderLoader.cs (e.g., "bdarmoryshaders_linux").
+    8. In the build tab select Standalone Windows/Standalone OSX Universal/Standalone Linux 64 (match your build settings).
+    9. Hit build.
+    10. Repeat 4, 7, 8 and 9 for the remaining Windows/Mac/Linux bundles.
+    11. Copy them from `~/Unity/<project name>/AssetBundles` (or equivalent on the OS you're using) to `Distribution/GameData/BDArmory/AssetBundles`.

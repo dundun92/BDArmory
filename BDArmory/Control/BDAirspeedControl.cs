@@ -13,6 +13,7 @@ namespace BDArmory.Control
         public float targetSpeed = 0;
         public float throttleOverride = -1f;
         public bool useBrakes = true;
+        public float brakingPriority = 0.5f;
         public bool allowAfterburner = true;
         public bool forceAfterburner = false;
         public float afterburnerPriority = 50f;
@@ -127,7 +128,7 @@ namespace BDArmory.Control
             //use brakes if overspeeding too much
             if (useBrakes)
             {
-                if (requestThrottle < -0.5f)
+                if (requestThrottle < brakingPriority - 1f)
                 {
                     vessel.ActionGroups.SetGroup(KSPActionGroup.Brakes, true);
                 }
@@ -158,7 +159,7 @@ namespace BDArmory.Control
             float finalThrust = 0;
             multiModeEngines.Clear();
 
-            using (var engines = VesselModuleRegistry.GetModules<ModuleEngines>(vessel).GetEnumerator())
+            using (var engines = VesselModuleRegistry.GetModuleEngines(vessel).GetEnumerator())
                 while (engines.MoveNext())
                 {
                     if (engines.Current == null) continue;
@@ -221,11 +222,14 @@ namespace BDArmory.Control
                     if (mmes.Current == null) continue;
 
                     bool afterburnerHasFuel = true;
-                    using (var fuel = mmes.Current.SecondaryEngine.propellants.GetEnumerator())
+                    if (!CheatOptions.InfinitePropellant)
+                    {
+                        using var fuel = mmes.Current.SecondaryEngine.propellants.GetEnumerator();
                         while (fuel.MoveNext())
                         {
-                            if (!GetABresources(fuel.Current.id)) afterburnerHasFuel = false;
+                            if (!GetABresources(fuel.Current.id)) { afterburnerHasFuel = false; break; }
                         }
+                    }
                     if (enable && afterburnerHasFuel)
                     {
                         if (mmes.Current.runningPrimary)
@@ -275,6 +279,7 @@ namespace BDArmory.Control
     public class BDLandSpeedControl : MonoBehaviour
     {
         public float targetSpeed;
+        public float signedSrfSpeed;
         public Vessel vessel;
         public bool preventNegativeZeroPoint = false;
 
@@ -317,12 +322,12 @@ namespace BDArmory.Control
             }
             else
             {
-                float throttle = zeroPoint + (targetSpeed - (float)vessel.srfSpeed) * gain;
+                float throttle = zeroPoint + (targetSpeed - signedSrfSpeed) * gain;
                 lastThrottle = Mathf.Clamp(throttle, -1, 1);
                 zeroPoint = (zeroPoint + lastThrottle * zeroMult) * (1 - zeroMult);
                 if (preventNegativeZeroPoint && zeroPoint < 0) zeroPoint = 0;
                 SetThrottle(s, lastThrottle);
-                vessel.ActionGroups.SetGroup(KSPActionGroup.Brakes, throttle < -5f);
+                vessel.ActionGroups.SetGroup(KSPActionGroup.Brakes, (targetSpeed * signedSrfSpeed < -5));
             }
         }
 
@@ -346,6 +351,8 @@ namespace BDArmory.Control
         public float targetAltitude;
         public Vessel vessel;
         public bool preventNegativeZeroPoint = false;
+
+        public float targetSpeed = 0;
 
         AxisGroupsModule axisGroupsModule;
         bool hasAxisGroupsModule = false; // To avoid repeated null checks
@@ -385,7 +392,7 @@ namespace BDArmory.Control
             }
             else
             {
-                float altError = (targetAltitude - (float)vessel.radarAltitude);
+                float altError = (targetAltitude - (float)vessel.radarAltitude); //this could use the MaxEngineAccel/AB stuff from speedController for VTOLS using AB capable engines for flight
                 float altP = Kp * (targetAltitude - (float)vessel.radarAltitude);
                 float altD = Kd * (float)vessel.verticalSpeed;
                 altIntegral = Ki * Mathf.Clamp(altIntegral + altError * Time.deltaTime, -1f, 1f);
@@ -395,6 +402,175 @@ namespace BDArmory.Control
 
                 vessel.ActionGroups.SetGroup(KSPActionGroup.Brakes, throttle < -5f);
             }
+            if (targetSpeed == 0)
+            {
+                vessel.ActionGroups.SetGroup(KSPActionGroup.Brakes, true);
+                SetSecondaryThrottle(0);
+                return;
+            }
+            else
+            {
+                float currentSpeed = (float)vessel.srfSpeed;
+                float speedError = targetSpeed - currentSpeed;
+
+                float setAccel = speedError * 2;
+
+                SetAcceleration(setAccel);
+            }
+        }
+        void SetAcceleration(float accel)
+        {
+            float maxThrust = 0;
+            using (var engines = VesselModuleRegistry.GetModuleEngines(vessel).GetEnumerator()) //very very simplified cutdown version of MaxEngineAccel from AirspeedController; could also use AB stuff
+                while (engines.MoveNext()) //Turn the MaxEngineAccel chunk into a static utility class accessible by the various biome speed controllers?
+                {
+                    if (engines.Current == null) continue;
+                    if (!engines.Current.independentThrottle) continue;
+                    if (!engines.Current.EngineIgnited) continue;
+
+                    float engineThrust = engines.Current.maxThrust;
+                    if (engines.Current.atmChangeFlow)
+                    {
+                        engineThrust *= engines.Current.flowMultiplier;
+                    }
+                    maxThrust += Mathf.Max(0f, engineThrust * (engines.Current.thrustPercentage / 100f)); // Don't include negative thrust percentage drives (Danny2462 drives) as they don't contribute to the thrust.
+                }
+
+            float vesselMass = vessel.GetTotalMass();
+
+            float engineAccel = maxThrust / vesselMass; // This assumes that all thrust is in the same direction.
+
+            if (engineAccel == 0)
+            {
+                SetSecondaryThrottle(accel > 0 ? 1 : 0);
+                return;
+            }
+
+            accel = Mathf.Clamp(accel, -engineAccel, engineAccel);
+
+            float requestThrottle = accel / engineAccel;
+
+            SetSecondaryThrottle(Mathf.Clamp01(requestThrottle));
+
+            //use brakes if overspeeding too much
+
+            if (requestThrottle < 0.5f - 1f)
+            {
+                vessel.ActionGroups.SetGroup(KSPActionGroup.Brakes, true);
+            }
+            else
+            {
+                vessel.ActionGroups.SetGroup(KSPActionGroup.Brakes, false);
+            }
+        }
+        /// <summary>
+        /// Set the main throttle and the corresponding axis group.
+        /// </summary>
+        /// <param name="s">The flight control state</param>
+        /// <param name="value">The throttle value</param>
+        public void SetThrottle(FlightCtrlState s, float value)
+        {
+            s.mainThrottle = value;
+            if (hasAxisGroupsModule)
+            {
+                axisGroupsModule.UpdateAxisGroup(KSPAxisGroup.MainThrottle, 2f * value - 1f); // Throttle is full-axis: 0—1 throttle maps to -1—1 axis.
+            }
+        }
+        public void SetSecondaryThrottle(float value)
+        {
+            using (var engines = VesselModuleRegistry.GetModuleEngines(vessel).GetEnumerator()) //allow VTOL AI to have standard horizontal engines for thrust, using engiens set to independent throttle so normal engines usable for altitude
+                while (engines.MoveNext())
+                {
+                    if (engines.Current == null) continue;
+                    if (!engines.Current.EngineIgnited) continue;
+                    if (!engines.Current.independentThrottle) continue;
+                    engines.Current.independentThrottlePercentage = value * 100;
+                }
+        }
+    }
+
+    public class BDOrbitalControl : MonoBehaviour //: PartModule
+    {
+
+        // /////////////////////////////////////////////////////
+        public Vessel vessel;
+        public Vector3 attitude = Vector3.zero;
+        private Vector3 attitudeLerped;
+        private float error;
+        private float angleLerp;
+        public bool lerpAttitude = true;
+        private float lerpRate;
+        private bool lockAttitude = false;
+        public bool PIDActive = false;
+        public  List<ModuleEngines> rcsEngines = new List<ModuleEngines>();
+        private bool facingDesiredRotation;
+        public float throttle;
+        public float throttleActual;
+        internal float throttleLerped;
+        public float throttleLerpRate = 1;
+        public bool lerpThrottle = true;
+        public float rcsLerpRate = 5;
+        public bool rcsRotate = false;
+        public float alignmentToleranceforBurn = 5;
+        public bool useReverseThrust = false;
+        public Vector3 thrustDirection = Vector3.zero;
+        public bool engineRCSRotation = true;
+        public bool engineRCSTranslation = true;
+
+        AxisGroupsModule axisGroupsModule;
+        bool hasAxisGroupsModule = false; // To avoid repeated null checks
+
+        public Vector3 RCSVector;
+        public Vector3 RCSVectorLerped = Vector3.zero;
+        public float RCSPower = 3f;
+        private Vector3 RCSThrust;
+        private Vector3 up, right, forward;
+        private float RCSThrottle;
+        private float lastEpsilon = 0.05f;
+
+        //[KSPEvent(guiActive = true, guiActiveEditor = false, guiName = "ToggleAC")]
+
+        void Start()
+        {
+            if (!vessel.IsMissile())
+            {
+                axisGroupsModule = vessel.FindVesselModuleImplementingBDA<AxisGroupsModule>(); // Look for an axis group module.
+                if (axisGroupsModule != null) hasAxisGroupsModule = true;
+            }
+        }
+
+        public void Activate()
+        {
+            vessel.OnFlyByWire -= OrbitalControl;
+            vessel.OnFlyByWire += OrbitalControl;
+        }
+
+        public void Deactivate()
+        {
+            vessel.OnFlyByWire -= OrbitalControl;
+        }
+
+        void OrbitalControl(FlightCtrlState s)
+        {
+            error = Vector3.Angle(vessel.ReferenceTransform.up, attitude);
+
+            if (!PIDActive)
+                UpdateSAS(s);
+            UpdateThrottle(s);
+            UpdateRCS(s);
+        }
+
+        private void UpdateThrottle(FlightCtrlState s)
+        {
+            facingDesiredRotation = Vector3.Angle((useReverseThrust ? -1 : 1) * vessel.ReferenceTransform.up, thrustDirection) < alignmentToleranceforBurn;
+ 
+            throttleActual = facingDesiredRotation ? throttle : 0;
+
+            // Move actual throttle towards throttle target gradually.
+            throttleLerped = Mathf.MoveTowards(throttleLerped, throttleActual, throttleLerpRate * Time.fixedDeltaTime);
+
+            SetThrottle(s, lerpThrottle ? throttleLerped : throttleActual);
+
         }
 
         /// <summary>
@@ -410,5 +586,139 @@ namespace BDArmory.Control
                 axisGroupsModule.UpdateAxisGroup(KSPAxisGroup.MainThrottle, 2f * value - 1f); // Throttle is full-axis: 0—1 throttle maps to -1—1 axis.
             }
         }
+
+        void UpdateRCS(FlightCtrlState s)
+        {
+            // When firing, adjust the minimum RCS thrust based on angle to target to allow minute adjustments using RCS
+            float rcsEpsilon = lerpAttitude == false ? 0.05f : Mathf.Lerp(0.05f, 0.01f, Mathf.Clamp01((Vector3.Dot(attitude, vessel.ReferenceTransform.up) - 0.999f) / 0.001f)); // 0.05 at greater than ~2.5 deg, 0.01 at 0 deg, default Epsilon is 0.05f
+            if (rcsEpsilon != lastEpsilon)
+            {
+                foreach (ModuleRCS thruster in VesselModuleRegistry.GetModules<ModuleRCS>(vessel))
+                    thruster.EPSILON = rcsEpsilon;
+                lastEpsilon = rcsEpsilon;
+            }
+
+            if (RCSVector == Vector3.zero) 
+            {
+                RCSEngineControl(s);
+                return;
+            }
+
+            if (RCSVectorLerped == Vector3.zero)
+                RCSVectorLerped = RCSVector;
+
+            float rcsLerpMag = RCSVectorLerped.magnitude;
+            float rcsLerpT = rcsLerpRate * Time.fixedDeltaTime * Mathf.Clamp01(rcsLerpMag / RCSPower);
+
+            if (rcsRotate) // Quickly rotate RCS thrust towards commanded RCSVector
+                RCSVectorLerped = Vector3.Slerp(RCSVectorLerped, RCSVector, rcsLerpT);
+            else // Gradually lerp RCS thrust towards commanded RCSVector
+                RCSVectorLerped = Vector3.Lerp(RCSVectorLerped, RCSVector, rcsLerpT);
+            RCSThrottle = Mathf.Lerp(0, 1.732f, Mathf.InverseLerp(0, RCSPower, rcsLerpMag));
+            RCSThrust = RCSVectorLerped.normalized * RCSThrottle;
+
+            up = -vessel.ReferenceTransform.forward;
+            forward = -vessel.ReferenceTransform.up;
+            right = Vector3.Cross(up, forward);
+
+            SetAxisControlState(s,
+                Mathf.Clamp(Vector3.Dot(RCSThrust, right), -1, 1),
+                Mathf.Clamp(Vector3.Dot(RCSThrust, up), -1, 1),
+                Mathf.Clamp(Vector3.Dot(RCSThrust, forward), -1, 1));
+
+            RCSEngineControl(s);
+        }
+
+        void UpdateSAS(FlightCtrlState s)
+        {
+            if (attitude == Vector3.zero || lockAttitude) return;
+
+            // SAS must be turned off. Don't know why.
+            if (vessel.ActionGroups[KSPActionGroup.SAS])
+                vessel.ActionGroups.SetGroup(KSPActionGroup.SAS, false);
+
+            var ap = vessel.Autopilot;
+            if (ap == null) return;
+
+            // The offline SAS must not be on stability assist. Normal seems to work on most probes.
+            if (ap.Mode != VesselAutopilot.AutopilotMode.Normal)
+                ap.SetMode(VesselAutopilot.AutopilotMode.Normal);
+
+            // Lerp attitude while burning to reduce instability.
+            if (lerpAttitude)
+            {
+                angleLerp = Mathf.InverseLerp(0, 10, error);
+                lerpRate = Mathf.Lerp(1, 10, angleLerp);
+                attitudeLerped = Vector3.Lerp(attitudeLerped, attitude, lerpRate * Time.deltaTime);
+            }
+
+            ap.SAS.SetTargetOrientation(throttleLerped > 0 && lerpAttitude ? attitudeLerped : attitude, false);
+        }
+
+        public void RCSEngineControl(FlightCtrlState s)
+        {
+            // Control engines perpendicular to longitudinal axis to act as RCS thrusters using FlightCtrlState s.pitch/s.yaw/s.yaw/s.X/s.Y/s.Z inputs
+            // Call this last of all control methods so FlightCtrlState is finalized
+            Vector3 rcsTranslation = s.X * right + s.Y * up + s.Z * forward;
+            Vector3 vesselRad = new( // vesselSize is width, height, length
+                (vessel.vesselSize.y + vessel.vesselSize.z) / 4f, // Pitch: average of height and length, halved
+                (vessel.vesselSize.x + vessel.vesselSize.z) / 4f, // Yaw: average of width and length, halved
+                (vessel.vesselSize.x + vessel.vesselSize.y) / 4f); // Roll: average of width and height, halved    
+            float giveThrustMin = Mathf.Lerp(0.13f, 0f, Mathf.Clamp01(Vector3.Dot(attitude, vessel.ReferenceTransform.up)));
+            for (int i = 0; i < rcsEngines.Count; i++)
+            {
+                if (rcsEngines[i] == null) continue;
+
+                // RCS translation
+                float giveThrust = engineRCSTranslation ? Mathf.Clamp(Vector3.Dot(-rcsEngines[i].thrustTransforms[0].forward, rcsTranslation), -1f, 1f) : 0f;
+
+                // RCS Rotation using Moments
+                if (engineRCSRotation)
+                {
+                    float pitchMoment = s.pitch * Vector3.Dot(vessel.ReferenceTransform.right, Vector3.Cross(rcsEngines[i].transform.position - vessel.CoM, rcsEngines[i].thrustTransforms[0].forward)) / vesselRad.x;
+                    float yawMoment = s.yaw * Vector3.Dot(vessel.ReferenceTransform.forward, Vector3.Cross(rcsEngines[i].transform.position - vessel.CoM, rcsEngines[i].thrustTransforms[0].forward)) / vesselRad.y;
+                    float rollMoment = s.roll * Vector3.Dot(vessel.ReferenceTransform.up, Vector3.Cross(rcsEngines[i].transform.position - vessel.CoM, rcsEngines[i].thrustTransforms[0].forward)) / vesselRad.z;
+                    giveThrust += pitchMoment + yawMoment + rollMoment; // Modify any translation to allow rotation
+                }
+
+                if (giveThrust >= giveThrustMin)
+                    rcsEngines[i].thrustPercentage = Mathf.Clamp01(giveThrust) * 100;
+                else
+                    rcsEngines[i].thrustPercentage = 0;
+            }
+        }
+
+        public void Stability(bool enable)
+        {
+            if (lockAttitude == enable) return;
+            lockAttitude = enable;
+
+            var ap = vessel.Autopilot;
+            if (ap == null) return;
+
+            vessel.ActionGroups.SetGroup(KSPActionGroup.SAS, enable);
+            ap.SetMode(enable ? VesselAutopilot.AutopilotMode.StabilityAssist : VesselAutopilot.AutopilotMode.Normal);
+        }
+
+        /// <summary>
+        /// Set the axis control state and also the corresponding axis groups.
+        /// </summary>
+        /// <param name="s">The flight control state</param>
+        /// <param name="X">x</param>
+        /// <param name="Y">y</param>
+        /// <param name="Z">z</param>
+        protected virtual void SetAxisControlState(FlightCtrlState s, float X, float Y, float Z)
+        {
+            s.X = X;
+            s.Y = Y;
+            s.Z = Z;
+            if (hasAxisGroupsModule)
+            {
+                axisGroupsModule.UpdateAxisGroup(KSPAxisGroup.TranslateX, X);
+                axisGroupsModule.UpdateAxisGroup(KSPAxisGroup.TranslateY, Y);
+                axisGroupsModule.UpdateAxisGroup(KSPAxisGroup.TranslateZ, Z);
+            }
+        }
+
     }
 }

@@ -19,12 +19,16 @@ namespace BDArmory.Utils
         /// <param name="time">after this time</param>
         /// <returns>Vector3 extrapolated position</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Vector3 PredictPosition(this Vessel v, float time)
+        public static Vector3 PredictPosition(this Vessel v, float time, bool immediate=true)
         {
-            Vector3 pos = v.CoM;
-            pos += v.Velocity() * time;
-            pos += 0.5f * v.acceleration_immediate * time * time;
-            return pos;
+            var vel = v.Velocity();
+            var acc = immediate ? v.acceleration_immediate : v.acceleration;
+            var time2 = 0.5f * time * time;
+            return new Vector3(
+                (float)(v.CoM.x + time * vel.x + time2 * acc.x),
+                (float)(v.CoM.y + time * vel.y + time2 * acc.y),
+                (float)(v.CoM.z + time * vel.z + time2 * acc.z)
+            );
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -67,7 +71,7 @@ namespace BDArmory.Utils
         public static float TimeToCPA(this Vessel vessel, Vector3 targetPosition, Vector3 targetVelocity, Vector3 targetAcceleration, float maxTime = float.MaxValue, CPAType cpaType = CPAType.Earliest)
         {
             if (vessel == null) return 0f; // We don't have a vessel.
-            Vector3 relPosition = targetPosition - vessel.transform.position;
+            Vector3 relPosition = targetPosition - vessel.CoM;
             Vector3 relVelocity = targetVelocity - vessel.Velocity();
             Vector3 relAcceleration = targetAcceleration - vessel.acceleration;
             return TimeToCPA(relPosition, relVelocity, relAcceleration, maxTime, cpaType);
@@ -84,27 +88,32 @@ namespace BDArmory.Utils
         /// <returns></returns>
         public static float TimeToCPA(Vector3 relPosition, Vector3 relVelocity, Vector3 relAcceleration, float maxTime = float.MaxValue, CPAType cpaType = CPAType.Earliest)
         {
-            float A = Vector3.Dot(relAcceleration, relAcceleration) / 2f;
-            float B = Vector3.Dot(relVelocity, relAcceleration) * 3f / 2f;
-            float C = Vector3.Dot(relVelocity, relVelocity) + Vector3.Dot(relPosition, relAcceleration);
-            float D = Vector3.Dot(relPosition, relVelocity);
-            float tolerance = 1e-7f; // Tolerance in comparisons.
-            if (A == 0) // Not actually a cubic. Relative acceleration is zero, so return the much simpler linear timeToCPA.
+            float a = Vector3.Dot(relAcceleration, relAcceleration);
+            float c = Vector3.Dot(relVelocity, relVelocity);
+            if (a == 0 || a * maxTime < 1e-3f * c) // Not actually a cubic. Relative acceleration is zero or insignificant within the time limit, so return the much simpler linear timeToCPA.
             {
-                return Mathf.Clamp(-Vector3.Dot(relPosition, relVelocity) / relVelocity.sqrMagnitude, 0f, maxTime);
+                if (c > 0)
+                    return Mathf.Clamp(-Vector3.Dot(relPosition, relVelocity) / relVelocity.sqrMagnitude, 0f, maxTime);
+                else
+                    return 0; // The objects are static, so they're not going to get any closer.
             }
+
+            float A = a / 2f;
+            float B = Vector3.Dot(relVelocity, relAcceleration) * 3f / 2f;
+            float C = c + Vector3.Dot(relPosition, relAcceleration);
+            float D = Vector3.Dot(relPosition, relVelocity);
             float D0 = B * B - 3f * A * C;
-            float D1 = 2 * B * B * B - 9f * A * B * C + 27f * A * A * D;
+            float D1 = 2f * B * B * B - 9f * A * B * C + 27f * A * A * D;
             float E = D1 * D1 - 4f * D0 * D0 * D0; // = -27*A^2*discriminant
             // float discriminant = 18f * A * B * C * D - 4f * Mathf.Pow(B, 3f) * D + Mathf.Pow(B, 2f) * Mathf.Pow(C, 2f) - 4f * A * Mathf.Pow(C, 3f) - 27f * Mathf.Pow(A, 2f) * Mathf.Pow(D, 2f);
-            if (E > tolerance)
+            if (E > 0)
             { // Single solution (E is positive)
                 float F = (D1 + Mathf.Sign(D1) * BDAMath.Sqrt(E)) / 2f;
                 float G = Mathf.Sign(F) * Mathf.Pow(Mathf.Abs(F), 1f / 3f);
                 float time = -1f / 3f / A * (B + G + D0 / G);
                 return Mathf.Clamp(time, 0f, maxTime);
             }
-            else if (E < -tolerance)
+            else if (E < 0)
             { // Triple solution (E is negative)
                 float F_real = D1 / 2f;
                 float F_imag = Mathf.Sign(D1) * BDAMath.Sqrt(-E) / 2f;
@@ -118,7 +127,7 @@ namespace BDArmory.Utils
                 {
                     float G = G_abs * Mathf.Cos(G_ang + 2f * (float)i * Mathf.PI / 3f);
                     float t = -1f / 3f / A * (B + G + D0 * G / G_abs / G_abs);
-                    if (Mathf.Sign(C + t * B / 2f + 3f * t * t * A) > 0) // It's a minimum. There can be at most 2 minima and 1 maxima.
+                    if (Mathf.Sign(C + 2f * t * B + 3f * t * t * A) > 0) // It's a minimum. There can be at most 2 minima and 1 maxima.
                     {
                         switch (cpaType)
                         {
@@ -130,7 +139,7 @@ namespace BDArmory.Utils
                                 break;
                             case CPAType.Closest:
                                 t = Mathf.Clamp(t, 0, maxTime);
-                                var distSqr = (relPosition + relVelocity * t + relAcceleration * t * t / 2f).sqrMagnitude;
+                                var distSqr = (relPosition + t * relVelocity + t * t / 2f * relAcceleration).sqrMagnitude;
                                 if (distSqr < distanceSqr)
                                 {
                                     distanceSqr = distSqr;
@@ -144,15 +153,15 @@ namespace BDArmory.Utils
             }
             else
             { // Repeated root
-                if (Mathf.Abs(B * B - 2f * A * C) < tolerance)
+                if (Mathf.Abs(D0) == 0f)
                 { // A triple-root.
                     return Mathf.Clamp(-B / 3f / A, 0f, maxTime);
                 }
                 else
                 { // Double root and simple root.
                     float time = -1f;
-                    float t0 = (9f * A * D - B * C) / 2f / (B * B - 3f * A * C);
-                    float t1 = (4f * A * B * C - 9f * A * A * D - B * B * B) / A / (B * B - 3f * A * C);
+                    float t0 = (9f * A * D - B * C) / 2f / D0;
+                    float t1 = (4f * A * B * C - 9f * A * A * D - B * B * B) / A / D0;
                     switch (cpaType)
                     {
                         case CPAType.Earliest:
@@ -166,7 +175,7 @@ namespace BDArmory.Utils
                         case CPAType.Closest:
                             t0 = Mathf.Clamp(t0, 0, maxTime);
                             t1 = Mathf.Clamp(t1, 0, maxTime);
-                            time = ((relPosition + relVelocity * t0 + relAcceleration * t0 * t0 / 2f).sqrMagnitude < (relPosition + relVelocity * t1 + relAcceleration * t1 * t1 / 2f).sqrMagnitude) ? t0 : t1;
+                            time = ((relPosition + t0 * relVelocity + t0 * t0 / 2f * relAcceleration).sqrMagnitude < (relPosition + t1 * relVelocity + t1 * t1 / 2f * relAcceleration).sqrMagnitude) ? t0 : t1;
                             break;
                     }
                     return Mathf.Clamp(time, 0, maxTime);
@@ -212,7 +221,7 @@ namespace BDArmory.Utils
             float lag = ai.commandLeader.lag;
 
             float right = rightSign * positionFactor * spread;
-            float back = positionFactor * lag * -1;
+            float back = -positionFactor * lag;
 
             return new Vector3(right, back, 0);
         }
@@ -252,6 +261,7 @@ namespace BDArmory.Utils
             Land = 1,
             Water = 2,
             Amphibious = Land | Water,
+            Submarine = 4 | Water,
         }
 
         /// <summary>

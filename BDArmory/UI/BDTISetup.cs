@@ -10,6 +10,7 @@ using BDArmory.Competition;
 using BDArmory.Control;
 using BDArmory.Settings;
 using BDArmory.Utils;
+using BDArmory.ModIntegration;
 
 /*
 * *Milestone 6: Figure out how to have TI activation toggle the F4 SHOW_LABELS (or is it Flt_Show_labels?) method to sim a keypress?
@@ -35,6 +36,10 @@ namespace BDArmory.UI
         private float updateList = 0;
         private bool maySavethisInstance = false;
 
+        // Opacity Settings
+        internal const float textOpacity = 2f;
+        internal const float iconOpacity = 1f;
+
         public SortedList<string, List<MissileFire>> weaponManagers = new SortedList<string, List<MissileFire>>();
 
         public static string textureDir = "BDArmory/Textures/";
@@ -42,6 +47,8 @@ namespace BDArmory.UI
         //legacy version check
         bool LegacyTILoaded = false;
         bool showPSA = false;
+
+        GUIStyle title;
         private Texture2D dit;
         public Texture2D TextureIconDebris
         {
@@ -179,30 +186,18 @@ namespace BDArmory.UI
             LoadConfig();
             UpdateList();
 
-            using (var a = AppDomain.CurrentDomain.GetAssemblies().ToList().GetEnumerator())
-                while (a.MoveNext())
-                {
-                    string name = a.Current.FullName.Split(new char[1] { ',' })[0];
-                    switch (name)
-                    {
-                        case "BDATeamIcons":
-                            LegacyTILoaded = true;
-                            break;
-                    }
-                }
-            if (HighLogic.LoadedSceneIsFlight)
+            LegacyTILoaded = LegacyTeamIcons.CheckForLegacyTeamIcons();
+            if (HighLogic.LoadedSceneIsFlight && LegacyTILoaded)
+                ScreenMessages.PostScreenMessage(StringUtils.Localize("#LOC_BDArmory_Icons_legacyinstall"), 20.0f, ScreenMessageStyle.UPPER_CENTER);
+            TILabel = new GUIStyle
             {
-                if (LegacyTILoaded)
-                {
-                    ScreenMessages.PostScreenMessage(StringUtils.Localize("#LOC_BDArmory_Icons_legacyinstall"), 20.0f, ScreenMessageStyle.UPPER_CENTER);
-                }
-            }
-            TILabel = new GUIStyle();
-            TILabel.font = BDArmorySetup.BDGuiSkin.window.font;
-            TILabel.fontSize = BDArmorySetup.BDGuiSkin.window.fontSize;
-            TILabel.fontStyle = BDArmorySetup.BDGuiSkin.window.fontStyle;
-            IconOptionsGroup = new Rect(15, 55, toolWindowWidth - 20, 290);
-            TeamColorsGroup = new Rect(15, IconOptionsGroup.height, toolWindowWidth - 20, 25);
+                font = BDArmorySetup.BDGuiSkin.window.font,
+                fontSize = BDArmorySetup.BDGuiSkin.window.fontSize,
+                fontStyle = BDArmorySetup.BDGuiSkin.window.fontStyle
+            };
+            IconOptionsGroup = new Rect(10, 55, toolWindowWidth - 20, 290);
+            TeamColorsGroup = new Rect(10, IconOptionsGroup.height, toolWindowWidth - 20, 25);
+            WindowRectGUI = new Rect(Screen.width - BDArmorySettings.UI_SCALE_ACTUAL * (toolWindowWidth + 40), 150, toolWindowWidth, toolWindowHeight);
         }
 
         private void MissileFireOnToggleTeam(MissileFire wm, BDTeam team)
@@ -231,7 +226,7 @@ namespace BDArmory.UI
                 }
             }
         }
-        public Dictionary<String, Color> ColorAssignments = new Dictionary<string, Color>();
+        public Dictionary<string, Color> ColorAssignments = new Dictionary<string, Color>();
         private void UpdateList(bool fromModifiedEvent = false)
         {
             weaponManagers.Clear();
@@ -282,23 +277,22 @@ namespace BDArmory.UI
             }
         }
 
-        IEnumerator ToolbarButtonRoutine()
-        {
-            if (toolbarButton || (!HighLogic.LoadedSceneIsEditor)) yield break;
-            yield return new WaitUntil(() => ApplicationLauncher.Ready && BDArmorySetup.toolbarButtonAdded); // Wait until after the main BDA toolbar button.
-            AddToolbarButton();
-        }
-
         void AddToolbarButton()
         {
-            if (HighLogic.LoadedSceneIsFlight)
+            if (!HighLogic.LoadedSceneIsFlight) return;
+            StartCoroutine(ToolbarButtonRoutine());
+        }
+        IEnumerator ToolbarButtonRoutine()
+        {
+            if (toolbarButton) // Just update the callbacks for the current instance.
             {
-                if (toolbarButton == null)
-                {
-                    Texture buttonTexture = GameDatabase.Instance.GetTexture("BDArmory/Textures/Icons/icon", false);
-                    toolbarButton = ApplicationLauncher.Instance.AddModApplication(ShowToolbarGUI, HideToolbarGUI, null, null, null, null, ApplicationLauncher.AppScenes.FLIGHT, buttonTexture);
-                }
+                toolbarButton.onTrue = ShowToolbarGUI;
+                toolbarButton.onFalse = HideToolbarGUI;
+                yield break;
             }
+            yield return new WaitUntil(() => ApplicationLauncher.Ready && BDArmorySetup.toolbarButtonAdded); // Wait until after the main BDA toolbar button.
+            Texture buttonTexture = GameDatabase.Instance.GetTexture("BDArmory/Textures/Icons/icon", false);
+            toolbarButton = ApplicationLauncher.Instance.AddModApplication(ShowToolbarGUI, HideToolbarGUI, null, null, null, null, ApplicationLauncher.AppScenes.FLIGHT, buttonTexture);
         }
 
         public void ShowToolbarGUI()
@@ -328,6 +322,7 @@ namespace BDArmory.UI
                 Debug.Log("[BDTeamIcons]=== Loading settings.cfg ===");
 
                 SettingsDataField.Load();
+                if (BDTISettings.MAX_DISTANCE_THRESHOLD < 1 || BDTISettings.MAX_DISTANCE_THRESHOLD > BDArmorySettings.MAX_GUARD_VISUAL_RANGE) BDTISettings.MAX_DISTANCE_THRESHOLD = BDArmorySettings.MAX_GUARD_VISUAL_RANGE;
             }
             catch (NullReferenceException)
             {
@@ -348,11 +343,19 @@ namespace BDArmory.UI
             }
         }
 
-        GUIStyle title;
-
         void OnGUI()
         {
             if (LegacyTILoaded) return;
+            if (!BDArmorySetup.GAME_UI_ENABLED) return;
+            if (title == null)
+            {
+                title = new GUIStyle(GUI.skin.label)
+                {
+                    fontSize = 30,
+                    alignment = TextAnchor.MiddleLeft,
+                    wordWrap = false
+                };
+            }
 
             if (showTeamIconGUI)
             {
@@ -360,13 +363,9 @@ namespace BDArmory.UI
                 {
                     maySavethisInstance = true;
                 }
-                WindowRectGUI = new Rect(Screen.width - toolWindowWidth - 40, 150, toolWindowWidth, toolWindowHeight);
+                if (BDArmorySettings.UI_SCALE_ACTUAL != 1) GUIUtility.ScaleAroundPivot(BDArmorySettings.UI_SCALE_ACTUAL * Vector2.one, WindowRectGUI.position);
                 WindowRectGUI = GUI.Window(GUIUtility.GetControlID(FocusType.Passive), WindowRectGUI, TeamIconGUI, windowTitle, BDArmorySetup.BDGuiSkin.window);
             }
-            title = new GUIStyle(GUI.skin.label);
-            title.fontSize = 30;
-            title.alignment = TextAnchor.MiddleLeft;
-            title.wordWrap = false;
             if (HighLogic.LoadedSceneIsFlight && BDTISettings.TEAMICONS)
             {
                 if (GameSettings.FLT_VESSEL_LABELS && !showPSA)
@@ -379,9 +378,11 @@ namespace BDArmory.UI
         public bool showTeamIconSelect = false;
         public bool showColorSelect = false;
 
+        (float, float)[] cacheMaxDistanceThreshold;
         void TeamIconGUI(int windowID)
         {
             float line = 0;
+            GUI.DragWindow(new Rect(0, 0, WindowRectGUI.width, 25));
             BDTISettings.TEAMICONS = GUI.Toggle(new Rect(5, 25, toolWindowWidth, 20), BDTISettings.TEAMICONS, StringUtils.Localize("#LOC_BDArmory_Enable_Icons"), BDArmorySetup.BDGuiSkin.toggle);
             if (BDTISettings.TEAMICONS)
             {
@@ -397,6 +398,7 @@ namespace BDArmory.UI
                 BDTISettings.HEALTHBAR = GUI.Toggle(new Rect(15, line++ * 25, toolWindowWidth - 20, 20), BDTISettings.HEALTHBAR, StringUtils.Localize("#LOC_BDArmory_Icon_healthbars"), BDArmorySetup.BDGuiSkin.toggle);
                 BDTISettings.SHOW_SELF = GUI.Toggle(new Rect(15, line++ * 25, toolWindowWidth - 20, 20), BDTISettings.SHOW_SELF, StringUtils.Localize("#LOC_BDArmory_Icon_show_self"), BDArmorySetup.BDGuiSkin.toggle);
                 BDTISettings.MISSILES = GUI.Toggle(new Rect(15, line++ * 25, toolWindowWidth - 20, 20), BDTISettings.MISSILES, StringUtils.Localize("#LOC_BDArmory_Icon_missiles"), BDArmorySetup.BDGuiSkin.toggle);
+                if (BDTISettings.MISSILES) BDTISettings.MISSILE_TEXT = GUI.Toggle(new Rect(15, line++ * 25, toolWindowWidth - 20, 20), BDTISettings.MISSILE_TEXT, StringUtils.Localize("#LOC_BDArmory_Icon_missile_text"), BDArmorySetup.BDGuiSkin.toggle);
                 BDTISettings.DEBRIS = GUI.Toggle(new Rect(15, line++ * 25, toolWindowWidth - 20, 20), BDTISettings.DEBRIS, StringUtils.Localize("#LOC_BDArmory_Icon_debris"), BDArmorySetup.BDGuiSkin.toggle);
                 BDTISettings.PERSISTANT = GUI.Toggle(new Rect(15, line++ * 25, toolWindowWidth - 20, 20), BDTISettings.PERSISTANT, StringUtils.Localize("#LOC_BDArmory_Icon_persist"), BDArmorySetup.BDGuiSkin.toggle);
                 BDTISettings.THREATICON = GUI.Toggle(new Rect(15, line++ * 25, toolWindowWidth - 20, 20), BDTISettings.THREATICON, StringUtils.Localize("#LOC_BDArmory_Icon_threats"), BDArmorySetup.BDGuiSkin.toggle);
@@ -406,8 +408,12 @@ namespace BDArmory.UI
                 GUI.Label(new Rect(15, line++ * 25, toolWindowWidth - 20, 20), StringUtils.Localize("#LOC_BDArmory_Icon_scale") + " " + (BDTISettings.ICONSCALE * 100f).ToString("0") + "%");
                 BDTISettings.ICONSCALE = GUI.HorizontalSlider(new Rect(10, line++ * 25, toolWindowWidth - 40, 20), BDTISettings.ICONSCALE, 0.25f, 2f);
                 line -= 0.15f;
-                GUI.Label(new Rect(15, line++ * 25, toolWindowWidth - 20, 20), StringUtils.Localize("#LOC_BDArmory_Icon_distance_threshold") + " " + (BDTISettings.DISTANCE_THRESHOLD).ToString("0") + "m");
-                BDTISettings.DISTANCE_THRESHOLD = Mathf.Round(GUI.HorizontalSlider(new Rect(10, line++ * 25, toolWindowWidth - 40, 20), BDTISettings.DISTANCE_THRESHOLD, 10f, 250f) / 10f) * 10f;
+                GUI.Label(new Rect(15, line++ * 25, toolWindowWidth - 20, 20), $"{StringUtils.Localize("#LOC_BDArmory_Icon_distance_threshold")} {BDTISettings.DISTANCE_THRESHOLD:0}m");
+                BDTISettings.DISTANCE_THRESHOLD = BDAMath.RoundToUnit(GUI.HorizontalSlider(new Rect(10, line++ * 25, toolWindowWidth - 40, 20), BDTISettings.DISTANCE_THRESHOLD, 10f, 250f), 10f);
+                GUI.Label(new Rect(15, line++ * 25, toolWindowWidth - 20, 20), $"{StringUtils.Localize("#LOC_BDArmory_Icon_opacity")} {BDTISettings.OPACITY * 100f:0}%");
+                BDTISettings.OPACITY = BDAMath.RoundToUnit(GUI.HorizontalSlider(new Rect(10, line++ * 25, toolWindowWidth - 40, 20), BDTISettings.OPACITY, 0f, 1f), 0.01f);
+                GUI.Label(new Rect(15, line++ * 25, toolWindowWidth - 20, 20), $"{StringUtils.Localize("#LOC_BDArmory_Icon_max_distance_threshold")} {(BDTISettings.MAX_DISTANCE_THRESHOLD < BDArmorySettings.MAX_GUARD_VISUAL_RANGE ? $"{BDTISettings.MAX_DISTANCE_THRESHOLD / 1000f:0}km" : "Unlimited")}");
+                BDTISettings.MAX_DISTANCE_THRESHOLD = GUIUtils.HorizontalSemiLogSlider(new Rect(10, line++ * 25, toolWindowWidth - 40, 20), BDTISettings.MAX_DISTANCE_THRESHOLD / 1000f, 1f, BDArmorySettings.MAX_GUARD_VISUAL_RANGE / 1000f, 1, false, false, ref cacheMaxDistanceThreshold) * 1000f;
                 GUI.EndGroup();
                 IconOptionsGroup.height = 25f * line;
 
@@ -440,8 +446,8 @@ namespace BDArmory.UI
                 GUI.EndGroup();
                 TeamColorsGroup.height = Mathf.Lerp(TeamColorsGroup.height, (line * 25) + 5, 0.35f);
             }
-            toolWindowHeight = Mathf.Lerp(toolWindowHeight, (50 + (BDTISettings.TEAMICONS ? IconOptionsGroup.height + TeamColorsGroup.height : 0)) + 15, 0.35f);
-            WindowRectGUI.height = toolWindowHeight + 10;
+            toolWindowHeight = Mathf.Lerp(toolWindowHeight, 50 + (BDTISettings.TEAMICONS ? IconOptionsGroup.height + TeamColorsGroup.height : 0) + 15, 0.35f);
+            WindowRectGUI.height = toolWindowHeight;
         }
     }
 }

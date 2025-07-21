@@ -13,6 +13,9 @@ using BDArmory.Settings;
 using BDArmory.UI;
 using BDArmory.Utils;
 using BDArmory.Weapons.Missiles;
+using BDArmory.Weapons;
+using BDArmory.Damage;
+using BDArmory.FX;
 
 namespace BDArmory.VesselSpawning
 {
@@ -26,11 +29,11 @@ namespace BDArmory.VesselSpawning
             VesselSpawnerStatus.spawnFailureReason = SpawnFailureReason.Cancelled;
 
             // Single spawn
-            if (CircularSpawning.Instance.vesselsSpawning || CircularSpawning.Instance.vesselsSpawningOnceContinuously)
+            if (CircularSpawning.Instance && CircularSpawning.Instance.vesselsSpawning || CircularSpawning.Instance.vesselsSpawningOnceContinuously)
             { CircularSpawning.Instance.CancelSpawning(); }
 
             // Continuous spawn
-            if (ContinuousSpawning.Instance.vesselsSpawningContinuously)
+            if (ContinuousSpawning.Instance && ContinuousSpawning.Instance.vesselsSpawningContinuously)
             { ContinuousSpawning.Instance.CancelSpawning(); }
 
             SpawnUtils.RevertSpawnLocationCamera(true);
@@ -101,12 +104,12 @@ namespace BDArmory.VesselSpawning
         static Dictionary<string, int> _partCrewCounts;
 
         #region Camera
-        public static void ShowSpawnPoint(int worldIndex, double latitude, double longitude, double altitude = 0, float distance = 0, bool spawning = false) => SpawnUtilsInstance.Instance.ShowSpawnPoint(worldIndex, latitude, longitude, altitude, distance, spawning); // Note: this may launch a coroutine when not spawning and there's no active vessel!
-        public static void RevertSpawnLocationCamera(bool keepTransformValues = true, bool revertIfDead = false) => SpawnUtilsInstance.Instance.RevertSpawnLocationCamera(keepTransformValues, revertIfDead);
+        public static void ShowSpawnPoint(int worldIndex, double latitude, double longitude, double altitude = 0, float distance = 0, bool spawning = false) { if (SpawnUtilsInstance.Instance) SpawnUtilsInstance.Instance.ShowSpawnPoint(worldIndex, latitude, longitude, altitude, distance, spawning); } // Note: this may launch a coroutine when not spawning and there's no active vessel!
+        public static void RevertSpawnLocationCamera(bool keepTransformValues = true, bool revertIfDead = false) { if (SpawnUtilsInstance.Instance) SpawnUtilsInstance.Instance.RevertSpawnLocationCamera(keepTransformValues, revertIfDead); }
         #endregion
 
         #region Teams
-        public static Dictionary<string, string> originalTeams = new Dictionary<string, string>();
+        public static Dictionary<string, string> originalTeams = [];
         public static void SaveTeams()
         {
             originalTeams.Clear();
@@ -118,16 +121,16 @@ namespace BDArmory.VesselSpawning
         #endregion
 
         #region Engine Activation
-        public static int CountActiveEngines(Vessel vessel)
+        public static int CountActiveEngines(Vessel vessel, bool andOperational = false)
         {
-            return VesselModuleRegistry.GetModules<ModuleEngines>(vessel).Where(engine => engine.EngineIgnited).ToList().Count + FireSpitter.CountActiveEngines(vessel);
+            return VesselModuleRegistry.GetModuleEngines(vessel).Where(engine => engine.EngineIgnited && (!andOperational || engine.isOperational)).ToList().Count + FireSpitter.CountActiveEngines(vessel);
         }
 
         public static void ActivateAllEngines(Vessel vessel, bool activate = true, bool ignoreModularMissileEngines = true)
         {
-            foreach (var engine in VesselModuleRegistry.GetModules<ModuleEngines>(vessel))
+            foreach (var engine in VesselModuleRegistry.GetModuleEngines(vessel))
             {
-                if (ignoreModularMissileEngines && IsModularMissileEngine(engine)) continue; // Ignore modular missile engines.
+                if (ignoreModularMissileEngines && IsModularMissilePart(engine.part)) continue; // Ignore modular missile engines.
                 if (BDArmorySettings.RUNWAY_PROJECT && BDArmorySettings.RUNWAY_PROJECT_ROUND == 55) engine.independentThrottle = false;
                 var mme = engine.part.FindModuleImplementing<MultiModeEngine>();
                 if (mme == null)
@@ -162,11 +165,14 @@ namespace BDArmory.VesselSpawning
                 }
             }
             FireSpitter.ActivateFSEngines(vessel, activate);
+            foreach (var repulsor in VesselModuleRegistry.GetModules<ModuleSpaceFriction>(vessel))
+            {
+                repulsor.ToggleRepulsor();
+            }
         }
 
-        public static bool IsModularMissileEngine(ModuleEngines engine)
+        public static bool IsModularMissilePart(Part part)
         {
-            var part = engine.part;
             if (part is not null)
             {
                 var firstDecoupler = BDModularGuidance.FindFirstDecoupler(part.parent, null);
@@ -199,6 +205,26 @@ namespace BDArmory.VesselSpawning
         public static void SpaceHacks(Vessel vessel) => SpawnUtilsInstance.Instance.SpaceHacks(vessel);
         #endregion
 
+        #region Mutators
+        public static void ApplyMutatorsOnNewVessels(bool enable) => SpawnUtilsInstance.Instance.ApplyMutatorsOnNewVessels(enable);
+        public static void ApplyMutators(Vessel vessel, bool enable) => SpawnUtilsInstance.Instance.ApplyMutators(vessel, enable);
+        #endregion
+
+        #region RWP Stuff
+        public static void ApplyRWPonNewVessels(bool enable) => SpawnUtilsInstance.Instance.ApplyRWPonNewVessels(enable);
+        public static void ApplyRWP(Vessel vessel) => SpawnUtilsInstance.Instance.ApplyRWP(vessel); // Applying RWP can't be undone
+        #endregion
+        #region CompCheck Stuff
+        public static void ApplyCompCheckonNewVessels(bool enable) => SpawnUtilsInstance.Instance.ApplyCompCheckOnNewVessels(enable);
+        public static void ApplyCompSettingsChecks(Vessel vessel) => SpawnUtilsInstance.Instance.ApplyCompSettingsChecks(vessel); // Applying these can't be undone
+
+        #endregion
+
+        #region HallOfShame
+        public static void ApplyHOSOnNewVessels(bool enable) => SpawnUtilsInstance.Instance.ApplyHOSOnNewVessels(enable);
+        public static void ApplyHOS(Vessel vessel) => SpawnUtilsInstance.Instance.ApplyHOS(vessel); // Applying HOS can't be undone.
+        #endregion
+
         #region KAL
         public static void RestoreKALGlobally(bool restore = true) { foreach (var vessel in FlightGlobals.VesselsLoaded) SpawnUtilsInstance.Instance.RestoreKAL(vessel, restore); }
         public static void RestoreKAL(Vessel vessel, bool restore = true) => SpawnUtilsInstance.Instance.RestoreKAL(vessel, restore);
@@ -212,6 +238,7 @@ namespace BDArmory.VesselSpawning
         public static bool removingVessels => SpawnUtilsInstance.Instance.removeVesselsPending > 0;
         public static void RemoveVessel(Vessel vessel) => SpawnUtilsInstance.Instance.RemoveVessel(vessel);
         public static IEnumerator RemoveAllVessels() => SpawnUtilsInstance.Instance.RemoveAllVessels();
+        public static void DisableAllBulletsAndRockets() => SpawnUtilsInstance.Instance.DisableAllBulletsAndRockets();
         #endregion
 
         #region AI/WM stuff for RWP
@@ -219,7 +246,7 @@ namespace BDArmory.VesselSpawning
         {
             var message = "";
             List<string> failureStrings = new List<string>();
-            var AI = VesselModuleRegistry.GetBDModulePilotAI(vessel, true);
+            var AI = VesselModuleRegistry.GetModule<BDGenericAIBase>(vessel, true);
             var WM = VesselModuleRegistry.GetMissileFire(vessel, true);
             if (AI == null) message = " has no AI";
             if (WM == null) message += (AI == null ? " or WM" : " has no WM");
@@ -236,8 +263,16 @@ namespace BDArmory.VesselSpawning
                 {
                     message += (AI == null ? " and its WM" : (count > 0 ? " and WM" : "'s WM"));
                     ++count;
-                };
+                }
                 if (count > 0) message += (count > 1 ? " are" : " is") + " not attached to its root part";
+            }
+            if (!(
+                vessel.rootPart.IsKerbalSeat() // The root part is a seat.
+                || vessel.rootPart.protoModuleCrew.Any(crew => crew != null) // The root part is a cockpit.
+                || vessel.rootPart.children.Any(part => part.IsKerbalSeat()) // The root part has a seat attached to it (this should be fine as the chair will be killed if it detaches).
+            ))
+            {
+                message += $"{(message.Length > 0 ? " and its" : "'s")} cockpit isn't the root part";
             }
 
             if (!string.IsNullOrEmpty(message))
@@ -252,7 +287,7 @@ namespace BDArmory.VesselSpawning
 
         public static void CheckAIWMCounts(Vessel vessel)
         {
-            var numberOfAIs = VesselModuleRegistry.GetModuleCount<BDModulePilotAI>(vessel);
+            var numberOfAIs = VesselModuleRegistry.GetModuleCount<BDGenericAIBase>(vessel);
             var numberOfWMs = VesselModuleRegistry.GetModuleCount<MissileFire>(vessel);
             string message = null;
             if (numberOfAIs != 1 && numberOfWMs != 1) message = $"{vessel.vesselName} has {numberOfAIs} AIs and {numberOfWMs} WMs";
@@ -300,7 +335,6 @@ namespace BDArmory.VesselSpawning
             SpaceFrictionOnNewVessels(false);
         }
 
-
         #region Post-Spawn
         public void OnVesselReady(Vessel vessel) => StartCoroutine(OnVesselReadyCoroutine(vessel));
         /// <summary>
@@ -331,7 +365,7 @@ namespace BDArmory.VesselSpawning
         public IEnumerator RemoveVesselCoroutine(Vessel vessel)
         {
             if (vessel == null) yield break;
-            ++removeVesselsPending;
+            removeVesselsPending = Math.Max(1, removeVesselsPending + 1);
             if (vessel != FlightGlobals.ActiveVessel && vessel.vesselType != VesselType.SpaceObject)
             {
                 try
@@ -353,8 +387,7 @@ namespace BDArmory.VesselSpawning
             {
                 if (vessel.vesselType == VesselType.SpaceObject)
                 {
-                    if ((BDArmorySettings.ASTEROID_RAIN && AsteroidRain.IsManagedAsteroid(vessel))
-                        || (BDArmorySettings.ASTEROID_FIELD && AsteroidField.IsManagedAsteroid(vessel))) // Don't remove asteroids when we're using them.
+                    if (AsteroidUtils.IsManagedAsteroid(vessel)) // Don't remove asteroids when we're using them.
                     {
                         --removeVesselsPending;
                         yield break;
@@ -388,17 +421,27 @@ namespace BDArmory.VesselSpawning
         /// <returns></returns>
         public IEnumerator RemoveAllVessels()
         {
+            DisableAllBulletsAndRockets(); // First get rid of any bullets and rockets flying around (missiles count as vessels).
             var vesselsToKill = FlightGlobals.Vessels.ToList();
             // Spawn in the SpawnProbe at the camera position.
             var spawnProbe = VesselSpawner.SpawnSpawnProbe();
+            var tic = Time.time;
             if (spawnProbe != null) // If the spawnProbe is null, then just try to kill everything anyway.
             {
                 spawnProbe.Landed = false; // Tell KSP that it's not landed so KSP doesn't mess with its position.
-                yield return new WaitWhile(() => spawnProbe != null && (!spawnProbe.loaded || spawnProbe.packed));
-                // Switch to the spawn probe.
-                while (spawnProbe != null && FlightGlobals.ActiveVessel != spawnProbe)
+                yield return new WaitWhile(() => spawnProbe != null && (!spawnProbe.loaded || spawnProbe.packed) && Time.time - tic < 30);
+                // Switch to the spawn probe. Give up after 30s.
+                while (spawnProbe != null && FlightGlobals.ActiveVessel != spawnProbe && Time.time - tic < 30)
                 {
-                    LoadedVesselSwitcher.Instance.ForceSwitchVessel(spawnProbe);
+                    try
+                    {
+                        LoadedVesselSwitcher.Instance.ForceSwitchVessel(spawnProbe);
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogError($"[BDArmory.SpawnUtils]: Failed to switch to the SpawnProbe, proceeding with trying to kill everything.\n{e.Message}\n{e.StackTrace}");
+                        break;
+                    }
                     yield return waitForFixedUpdate;
                 }
             }
@@ -408,9 +451,45 @@ namespace BDArmory.VesselSpawning
             // Finally, remove the SpawnProbe.
             RemoveVessel(spawnProbe);
 
-            // Now, clear the teams and wait for everything to be removed.
+            // Now, clear the teams and wait up to 30s for everything to be removed.
             SpawnUtils.originalTeams.Clear();
-            yield return new WaitWhile(() => removeVesselsPending > 0);
+            tic = Time.time;
+            yield return new WaitWhile(() => removeVesselsPending > 0 && Time.time - tic < 30);
+        }
+
+        public void DisableAllBulletsAndRockets()
+        {
+            if (ModuleWeapon.bulletPool != null && ModuleWeapon.bulletPool.pool != null)
+            {
+                if (BDArmorySettings.DEBUG_OTHER) Debug.Log($"[BDArmory.SpawnUtils]: Setting {ModuleWeapon.bulletPool.pool.Count(b => b != null && b.activeInHierarchy)} bullets inactive.");
+                foreach (var bullet in ModuleWeapon.bulletPool.pool)
+                {
+                    if (bullet == null) continue;
+                    bullet.SetActive(false);
+                }
+            }
+            if (ModuleWeapon.shellPool != null && ModuleWeapon.shellPool.pool != null)
+            {
+                if (BDArmorySettings.DEBUG_OTHER) Debug.Log($"[BDArmory.SpawnUtils]: Setting {ModuleWeapon.shellPool.pool.Count(s => s != null && s.activeInHierarchy)} shells inactive.");
+                foreach (var shell in ModuleWeapon.shellPool.pool)
+                {
+                    if (shell == null) continue;
+                    shell.SetActive(false);
+                }
+            }
+            if (ModuleWeapon.rocketPool != null)
+            {
+                if (BDArmorySettings.DEBUG_OTHER) Debug.Log($"[BDArmory.SpawnUtils]: Setting {ModuleWeapon.rocketPool.Values.Where(rocketPool => rocketPool != null && rocketPool.pool != null).Sum(rocketPool => rocketPool.pool.Count(s => s != null && s.activeInHierarchy))} rockets inactive.");
+                foreach (var rocketPool in ModuleWeapon.rocketPool.Values)
+                {
+                    if (rocketPool == null || rocketPool.pool == null) continue;
+                    foreach (var rocket in rocketPool.pool)
+                    {
+                        if (rocket == null) continue;
+                        rocket.SetActive(false);
+                    }
+                }
+            }
         }
         #endregion
 
@@ -418,6 +497,7 @@ namespace BDArmory.VesselSpawning
         GameObject spawnLocationCamera;
         Transform originalCameraParentTransform;
         float originalCameraNearClipPlane;
+        float originalCameraDistance;
         Coroutine delayedShowSpawnPointCoroutine;
         private readonly WaitForFixedUpdate waitForFixedUpdate = new WaitForFixedUpdate();
         /// <summary>
@@ -434,6 +514,7 @@ namespace BDArmory.VesselSpawning
         /// <param name="recurse">State parameter for when we need to spawn a probe first.</param>
         public void ShowSpawnPoint(int worldIndex, double latitude, double longitude, double altitude = 0, float distance = 0, bool spawning = false, bool recurse = true)
         {
+            if (BDArmorySettings.DEBUG_SPAWNING) Debug.Log($"[BDArmory.SpawnUtils]: Showing spawn point ({latitude:G3}, {longitude:G3}, {altitude:G3}) on {FlightGlobals.Bodies[worldIndex].name}");
             if (BDArmorySettings.ASTEROID_RAIN) { AsteroidRain.Instance.Reset(); }
             if (BDArmorySettings.ASTEROID_FIELD) { AsteroidField.Instance.Reset(); }
             if (!spawning && (FlightGlobals.ActiveVessel == null || FlightGlobals.ActiveVessel.state == Vessel.State.DEAD))
@@ -452,6 +533,7 @@ namespace BDArmory.VesselSpawning
             var cameraHeading = FlightCamera.CamHdg;
             var cameraPitch = FlightCamera.CamPitch;
             if (distance == 0) distance = flightCamera.Distance;
+            if (FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.PatchedConicsAttached) FlightGlobals.ActiveVessel.DetachPatchedConicsSolver();
             if (!spawning)
             {
                 var overLand = (worldIndex != -1 ? FlightGlobals.Bodies[worldIndex] : FlightGlobals.currentMainBody).TerrainAltitude(latitude, longitude) > 0;
@@ -473,6 +555,7 @@ namespace BDArmory.VesselSpawning
                     spawnLocationCamera.SetActive(true);
                     originalCameraParentTransform = flightCamera.transform.parent;
                     originalCameraNearClipPlane = GUIUtils.GetMainCamera().nearClipPlane;
+                    originalCameraDistance = flightCamera.Distance;
                 }
                 spawnLocationCamera.transform.position = Vector3.zero;
                 spawnLocationCamera.transform.rotation = Quaternion.LookRotation(-cameraPosition, radialUnitVector);
@@ -482,7 +565,7 @@ namespace BDArmory.VesselSpawning
                 flightCamera.transform.localRotation = Quaternion.identity;
                 flightCamera.ActivateUpdate();
             }
-            flightCamera.SetDistance(distance);
+            flightCamera.SetDistanceImmediate(distance);
             FlightCamera.CamHdg = cameraHeading;
             FlightCamera.CamPitch = cameraPitch;
         }
@@ -513,14 +596,17 @@ namespace BDArmory.VesselSpawning
             var flightCamera = FlightCamera.fetch;
             if (originalCameraParentTransform != null)
             {
+                var mainCamera = GUIUtils.GetMainCamera();
                 if (keepTransformValues && flightCamera.transform != null && flightCamera.transform.parent != null)
                 {
                     originalCameraParentTransform.position = flightCamera.transform.parent.position;
                     originalCameraParentTransform.rotation = flightCamera.transform.parent.rotation;
-                    originalCameraNearClipPlane = GUIUtils.GetMainCamera().nearClipPlane;
+                    if (mainCamera) originalCameraNearClipPlane = mainCamera.nearClipPlane;
+                    originalCameraDistance = flightCamera.Distance;
                 }
                 flightCamera.transform.parent = originalCameraParentTransform;
-                GUIUtils.GetMainCamera().nearClipPlane = originalCameraNearClipPlane;
+                if (mainCamera) mainCamera.nearClipPlane = originalCameraNearClipPlane;
+                flightCamera.SetDistanceImmediate(originalCameraDistance);
                 flightCamera.SetTargetNone();
                 flightCamera.EnableCamera();
             }
@@ -601,6 +687,7 @@ namespace BDArmory.VesselSpawning
             }
         }
         #endregion
+
         #region Control Surface Actuator hacks
         public void HackActuatorsOnNewVessels(bool enable)
         {
@@ -666,6 +753,7 @@ namespace BDArmory.VesselSpawning
             }
         }
         #endregion
+
         #region Space hacks
         public void SpaceFrictionOnNewVessels(bool enable)
         {
@@ -697,6 +785,7 @@ namespace BDArmory.VesselSpawning
             ship.Parts[0].AddModule("ModuleSpaceFriction");
         }
         #endregion
+
         #region KAL
         public void RestoreKAL(Vessel vessel, bool restore) => StartCoroutine(RestoreKALCoroutine(vessel, restore));
         /// <summary>
@@ -715,6 +804,7 @@ namespace BDArmory.VesselSpawning
                 {
                     if (kal == null) continue;
                     kal.ControlledAxes.Clear();
+                    kal.ControlledActions.Clear();
                 }
                 yield break;
             }
@@ -723,6 +813,7 @@ namespace BDArmory.VesselSpawning
                     if (protoPartModuleSnapshot.moduleName == "ModuleRoboticController") // Found a KAL
                     {
                         var kal = protoPartModuleSnapshot.moduleRef as Expansions.Serenity.ModuleRoboticController;
+                        // First restore the controlled axes.
                         var controlledAxes = protoPartModuleSnapshot.moduleValues.GetNode("CONTROLLEDAXES");
                         kal.ControlledAxes.Clear(); // Clear the existing axes (they should be clear already due to mismatching part persistent IDs, but better safe than sorry).
                         int rowIndex = 0;
@@ -747,7 +838,358 @@ namespace BDArmory.VesselSpawning
                                                 }
                                         }
                             }
+                        // Then restore the controlled actions.
+                        var controlledActions = protoPartModuleSnapshot.moduleValues.GetNode("CONTROLLEDACTIONS");
+                        kal.ControlledActions.Clear(); // Clear the existing actions (they should be clear already due to mismatching part persistent IDs, but better safe than sorry).
+                        rowIndex = 0;
+                        foreach (var actionNode in controlledActions.GetNodes("ACTION")) // For each action to be controlled, locate the part in the spawned vessel that has the correct module.
+                            if (uint.TryParse(actionNode.GetValue("moduleId"), out uint moduleId)) // Get the persistentId of the module it's supposed to be affecting, which is correctly set in some part.
+                            {
+                                foreach (var part in vessel.Parts)
+                                    foreach (var partModule in part.Modules)
+                                        if (partModule.PersistentId == moduleId) // Found a corresponding part with the correct moduleId. Note: there could be multiple parts with this module due to symmetry, so we check them all.
+                                        {
+                                            var actionName = actionNode.GetValue("actionName");
+                                            foreach (var action in partModule.Actions)
+                                                if (action.name == actionName) // Found the action in a module in a part being controlled by this KAL.
+                                                {
+                                                    actionNode.SetValue("persistentId", part.persistentId.ToString()); // Update the ConfigNode in the ProtoPartModuleSnapshot
+                                                    actionNode.SetValue("partNickName", part.partInfo.title); // Set the nickname to the part title (note: this will override custom nicknames).
+                                                    actionNode.SetValue("rowIndex", rowIndex++);
+                                                    var controlledAction = new Expansions.Serenity.ControlledAction(part, partModule, action, kal); // Link the part, module, field and KAL together.
+                                                    controlledAction.Load(actionNode); // Load the new config into the action.
+                                                    kal.ControlledActions.Add(controlledAction); // Add the action to the KAL.
+                                                    break;
+                                                }
+                                        }
+                            }
                     }
+        }
+        #endregion
+
+        #region Mutators
+        public void ApplyMutatorsOnNewVessels(bool enable)
+        {
+            if (enable)
+            {
+                GameEvents.onVesselLoaded.Add(ApplyMutatorEventHandler);
+            }
+            else
+            {
+                GameEvents.onVesselLoaded.Remove(ApplyMutatorEventHandler);
+            }
+        }
+        void ApplyMutatorEventHandler(Vessel vessel) => ApplyMutators(vessel, true);
+
+        public Dictionary<string, int> gunGameProgress = [];
+        public void ApplyMutators(Vessel vessel, bool enable)
+        {
+            if (vessel == null || !vessel.loaded) return;
+            var MM = vessel.rootPart.FindModuleImplementing<BDAMutator>();
+            if (enable && BDArmorySettings.MUTATOR_MODE && BDArmorySettings.MUTATOR_LIST.Count > 0)
+            {
+                if (MM == null)
+                {
+                    MM = (BDAMutator)vessel.rootPart.AddModule("BDAMutator");
+                }
+                if (BDArmorySettings.MUTATOR_APPLY_GUNGAME) //gungame
+                {
+                    if (!BDArmorySettings.GG_CYCLE_LIST && MM.progressionIndex > BDArmorySettings.MUTATOR_LIST.Count - 1) return; // Already at the end of the list.
+                    if (BDArmorySettings.GG_PERSISTANT_PROGRESSION) MM.progressionIndex = gunGameProgress.GetValueOrDefault(vessel.vesselName, 0);
+                    if (MM.progressionIndex > BDArmorySettings.MUTATOR_LIST.Count - 1) MM.progressionIndex = BDArmorySettings.GG_CYCLE_LIST ? 0 : BDArmorySettings.MUTATOR_LIST.Count - 1;
+                    Debug.Log($"[BDArmory.SpawnUtils]: Applying mutator {BDArmorySettings.MUTATOR_LIST[MM.progressionIndex]} to {vessel.vesselName}");
+                    MM.EnableMutator(BDArmorySettings.MUTATOR_LIST[MM.progressionIndex]); // Apply the mutator.
+                    MM.progressionIndex++; //increment to next mutator on list
+                    if (BDArmorySettings.GG_PERSISTANT_PROGRESSION) gunGameProgress[vessel.vesselName] = MM.progressionIndex;
+                }
+                else
+                {
+                    if (BDArmorySettings.MUTATOR_APPLY_GLOBAL) //selected mutator applied globally
+                    {
+                        MM.EnableMutator(BDACompetitionMode.Instance.currentMutator);
+                    }
+                    else //mutator applied on a per-craft basis, APPLY_TIMER/APPLY_KILL
+                    {
+                        MM.EnableMutator(); //random mutator
+                    }
+                }
+                BDACompetitionMode.Instance.competitionStatus.Add($"{vessel.vesselName} gains {MM.mutatorName}{(BDArmorySettings.MUTATOR_DURATION > 0 ? $" for {BDArmorySettings.MUTATOR_DURATION * 60} seconds!" : "!")}");
+            }
+            else if (MM != null)
+            {
+                MM.DisableMutator();
+            }
+        }
+        #endregion
+
+        #region HOS
+        public void ApplyHOSOnNewVessels(bool enable)
+        {
+            if (enable)
+            {
+                GameEvents.onVesselLoaded.Add(ApplyHOSEventHandler);
+            }
+            else
+            {
+                GameEvents.onVesselLoaded.Remove(ApplyHOSEventHandler);
+            }
+        }
+        void ApplyHOSEventHandler(Vessel vessel) => ApplyHOS(vessel);
+
+        public void ApplyHOS(Vessel vessel)
+        {
+            if (vessel == null || !vessel.loaded) return;
+            if (BDArmorySettings.ENABLE_HOS && BDArmorySettings.HALL_OF_SHAME_LIST.Count > 0)
+            {
+                if (BDArmorySettings.HALL_OF_SHAME_LIST.Contains(vessel.GetName()))
+                {
+                    using (List<Part>.Enumerator part = vessel.Parts.GetEnumerator())
+                        while (part.MoveNext())
+                        {
+                            if (BDArmorySettings.HOS_FIRE > 0.1f)
+                            {
+                                BulletHitFX.AttachFire(part.Current.transform.position, part.Current, BDArmorySettings.HOS_FIRE * 50, "GM", BDArmorySettings.COMPETITION_DURATION * 60, 1, true);
+                            }
+                            if (BDArmorySettings.HOS_MASS != 0)
+                            {
+                                var MM = part.Current.FindModuleImplementing<ModuleMassAdjust>();
+                                if (MM == null)
+                                {
+                                    MM = (ModuleMassAdjust)part.Current.AddModule("ModuleMassAdjust");
+                                }
+                                MM.duration = BDArmorySettings.COMPETITION_DURATION * 60;
+                                MM.massMod += (float)(BDArmorySettings.HOS_MASS / vessel.Parts.Count); //evenly distribute mass change across entire vessel
+                            }
+                            if (BDArmorySettings.HOS_DMG != 1)
+                            {
+                                var HPT = part.Current.FindModuleImplementing<HitpointTracker>();
+                                HPT.defenseMutator = (float)(1 / BDArmorySettings.HOS_DMG);
+                            }
+                            if (BDArmorySettings.HOS_SAS)
+                            {
+                                if (part.Current.GetComponent<ModuleReactionWheel>() != null)
+                                {
+                                    ModuleReactionWheel SAS;
+                                    SAS = part.Current.GetComponent<ModuleReactionWheel>();
+                                    //if (part.Current.CrewCapacity == 0)
+                                    part.Current.RemoveModule(SAS); //don't strip reaction wheels from cockpits, as those are allowed
+                                }
+                            }
+                            if (BDArmorySettings.HOS_THRUST != 100)
+                            {
+                                using (var engine = VesselModuleRegistry.GetModuleEngines(vessel).GetEnumerator())
+                                    while (engine.MoveNext())
+                                    {
+                                        engine.Current.thrustPercentage = BDArmorySettings.HOS_THRUST;
+                                    }
+                            }
+                            if (!string.IsNullOrEmpty(BDArmorySettings.HOS_MUTATOR))
+                            {
+                                var MM = vessel.rootPart.FindModuleImplementing<BDAMutator>();
+                                if (MM == null)
+                                {
+                                    MM = (BDAMutator)vessel.rootPart.AddModule("BDAMutator");
+                                    if (BDArmorySettings.DEBUG_COMPETITION) Debug.Log($"[BDArmory.BDACompetitionMode]: adding Mutator module {vessel.vesselName}");
+                                }
+                                if (BDArmorySettings.DEBUG_COMPETITION) Debug.Log($"[BDArmory.BDACompetitionMode]: Applying ({BDArmorySettings.HOS_MUTATOR})");
+                                MM.EnableMutator(BDArmorySettings.HOS_MUTATOR, true);
+                            }
+                        }
+                }
+            }
+        }
+        #endregion
+
+        #region RWP Specific
+        public void ApplyRWPonNewVessels(bool enable)
+        {
+            if (enable)
+            {
+                GameEvents.onVesselLoaded.Add(ApplyRWPEventHandler);
+            }
+            else
+            {
+                GameEvents.onVesselLoaded.Remove(ApplyRWPEventHandler);
+            }
+        }
+        void ApplyRWPEventHandler(Vessel vessel) => ApplyRWP(vessel);
+
+        public void ApplyRWP(Vessel vessel)
+        {
+            if (vessel == null || !vessel.loaded) return;
+            if (BDArmorySettings.RUNWAY_PROJECT)
+            {
+                float torqueQuantity = 0;
+                int APSquantity = 0;
+                SpawnUtils.HackActuators(vessel, true);
+
+                using (List<Part>.Enumerator part = vessel.Parts.GetEnumerator())
+                    while (part.MoveNext())
+                    {
+                        if (part.Current.GetComponent<ModuleReactionWheel>() != null)
+                        {
+                            ModuleReactionWheel SAS;
+                            SAS = part.Current.GetComponent<ModuleReactionWheel>();
+                            if (part.Current.CrewCapacity == 0 || BDArmorySettings.RUNWAY_PROJECT_ROUND == 60)
+                            {
+                                torqueQuantity += ((SAS.PitchTorque + SAS.RollTorque + SAS.YawTorque) / 3) * (SAS.authorityLimiter / 100);
+                                if (torqueQuantity > BDArmorySettings.MAX_SAS_TORQUE)
+                                {
+                                    float excessTorque = torqueQuantity - BDArmorySettings.MAX_SAS_TORQUE;
+                                    SAS.authorityLimiter = 100 - Mathf.Clamp(((excessTorque / ((SAS.PitchTorque + SAS.RollTorque + SAS.YawTorque) / 3)) * 100), 0, 100);
+                                }
+                            }
+                        }
+                        if (part.Current.GetComponent<ModuleCommand>() != null)
+                        {
+                            if (!vessel.GetName().Contains(BDArmorySettings.PINATA_NAME))
+                            {
+                                ModuleCommand MC;
+                                MC = part.Current.GetComponent<ModuleCommand>();
+                                if (part.Current.CrewCapacity == 0 && MC.minimumCrew == 0 && !SpawnUtils.IsModularMissilePart(part.Current)) //Non-MMG drone core, nuke it
+                                    part.Current.RemoveModule(MC);
+                            }
+                        }
+                        if (BDArmorySettings.RUNWAY_PROJECT_ROUND == 59)
+                        {
+                            if (part.Current.GetComponent<ModuleWeapon>() != null)
+                            {
+                                ModuleWeapon gun;
+                                gun = part.Current.GetComponent<ModuleWeapon>();
+                                if (gun.isAPS) APSquantity++;
+                                if (APSquantity > 4)
+                                {
+                                    part.Current.RemoveModule(gun);
+                                    IEnumerator<PartResource> resource = part.Current.Resources.GetEnumerator();
+                                    while (resource.MoveNext())
+                                    {
+                                        if (resource.Current == null) continue;
+                                        if (resource.Current.flowState)
+                                        {
+                                            resource.Current.flowState = false;
+                                        }
+                                    }
+                                    resource.Dispose();
+                                }
+                            }
+                        }
+                    }
+                if (BDArmorySettings.RUNWAY_PROJECT_ROUND == 60)
+                {
+                    var nuke = vessel.rootPart.FindModuleImplementing<BDModuleNuke>();
+                    if (nuke == null)
+                    {
+                        nuke = (BDModuleNuke)vessel.rootPart.AddModule("BDModuleNuke");
+                        nuke.engineCore = true;
+                        nuke.meltDownDuration = 15;
+                        nuke.thermalRadius = 200;
+                        if (BDArmorySettings.DEBUG_COMPETITION) Debug.Log($"[BDArmory.BDACompetitionMOde]: Adding Nuke Module to {vessel.GetName()}");
+                    }
+                    BDModulePilotAI pilotAI = VesselModuleRegistry.GetBDModulePilotAI(vessel);
+                    if (pilotAI != null)
+                    {
+                        pilotAI.minAltitude = Mathf.Max(pilotAI.minAltitude, 750);
+                        pilotAI.defaultAltitude = BDArmorySettings.VESSEL_SPAWN_ALTITUDE;
+                        pilotAI.maxAllowedAoA = 2.5f;
+                        pilotAI.postStallAoA = 5;
+                        pilotAI.maxSpeed = Mathf.Min(250, pilotAI.maxSpeed);
+                        if (BDArmorySettings.DEBUG_COMPETITION) Debug.Log($"[BDArmory.SpawnUtils]: Setting SpaceMode AI settings on {vessel.GetName()}");
+                    }
+                }
+                if (BDArmorySettings.RUNWAY_PROJECT_ROUND == 67)
+                {
+                    if (vessel.GetName().Contains(BDArmorySettings.PINATA_NAME))
+                    {
+                        HitpointTracker armor = vessel.rootPart.GetComponent<HitpointTracker>();
+                        if (armor != null)
+                        {
+                            armor.maxHitPoints = BDArmorySettings.MAX_ACTIVE_RADAR_RANGE; //not used by RWP, so can be hacked to serve as a asteroid Hp value
+                            armor.SetupPrefab();
+                        }
+                    }
+                }
+				if (BDArmorySettings.RUNWAY_PROJECT_ROUND == 74)
+				{
+					var wm = VesselModuleRegistry.GetMissileFire(vessel);
+					if (BDArmorySettings.DEBUG_COMPETITION && wm.targetWeightAttackVIP != 10) Debug.Log($"[BDArmory.SpawnUtils]: Overriding VIP target priority to 10 on {vessel.GetName()}");
+					if (wm != null) wm.targetWeightAttackVIP = 10;
+				}
+            }
+        }
+        #endregion
+
+        #region Competition AI/WM Settings Compliance
+        public void ApplyCompCheckOnNewVessels(bool enable)
+        {
+            if (enable)
+            {
+                GameEvents.onVesselLoaded.Add(ApplyCompCheckEventHandler);
+            }
+            else
+            {
+                GameEvents.onVesselLoaded.Remove(ApplyCompCheckEventHandler);
+            }
+        }
+        void ApplyCompCheckEventHandler(Vessel vessel) => ApplyCompSettingsChecks(vessel);
+
+        public void ApplyCompSettingsChecks(Vessel vessel)
+        {
+            if (vessel == null || !vessel.loaded) return;
+            if (BDArmorySettings.COMP_CONVENIENCE_CHECKS)
+            {
+                int cockpitSeatCount = 0;
+
+                using (List<Part>.Enumerator part = vessel.Parts.GetEnumerator())
+                    while (part.MoveNext())
+                    {
+                        if (CompSettings.CompOverrides.TryGetValue("DISABLE_SAS", out float dSAS) && dSAS > 0)
+                        {
+                            if (part.Current.GetComponent<ModuleReactionWheel>() != null)
+                            {
+                                ModuleReactionWheel SAS;
+                                SAS = part.Current.GetComponent<ModuleReactionWheel>();
+                                if (part.Current.CrewCapacity == 0)
+                                    SAS.authorityLimiter = 0;
+                            }
+                        }
+                        if (part.Current.GetComponent<ModuleCommand>() != null)
+                        {
+                            if (part.Current.CrewCapacity > 0 && part.Current.CrewCapacity > cockpitSeatCount) cockpitSeatCount = part.Current.CrewCapacity;
+                        }
+                    }
+                var AI = VesselModuleRegistry.GetModule<BDModulePilotAI>(vessel);
+                if (AI != null)
+                {
+                    if (CompSettings.CompOverrides.TryGetValue("extendDistanceAirToAir", out float dATA) && dATA > 0)
+                        AI.extendDistanceAirToAir = Mathf.Min(AI.extendDistanceAirToAir, dATA);
+                    if (CompSettings.CompOverrides.TryGetValue("collisionAvoidanceThreshold", out float cAT) && cAT >= 0)
+                        AI.collisionAvoidanceThreshold = Mathf.Max(AI.collisionAvoidanceThreshold, cAT);
+                    if (CompSettings.CompOverrides.TryGetValue("vesselCollisionAvoidanceLookAheadPeriod", out float vCAL) && vCAL >= 0)
+                        AI.vesselCollisionAvoidanceLookAheadPeriod = Mathf.Max(AI.vesselCollisionAvoidanceLookAheadPeriod, vCAL);
+                    if (CompSettings.CompOverrides.TryGetValue("vesselCollisionAvoidanceStrength", out float vCAS) && vCAS >= 0)
+                        AI.vesselCollisionAvoidanceStrength = Mathf.Max(AI.vesselCollisionAvoidanceStrength, vCAS);
+                    if (CompSettings.CompOverrides.TryGetValue("idleSpeed", out float iS) && iS > 0)
+                        AI.idleSpeed = Mathf.Max(AI.idleSpeed, iS);
+                    if (CompSettings.CompOverrides.TryGetValue("extensionCutoffTime", out float eCT) && eCT > 0)
+                        AI.extensionCutoffTime = Mathf.Max(AI.extensionCutoffTime, eCT);
+                }
+                var WM = VesselModuleRegistry.GetModule<MissileFire>(vessel);
+                if (WM != null)
+                {
+                    if (cockpitSeatCount == 1)
+                    {
+                        if (CompSettings.CompOverrides.TryGetValue("MONOCOCKPIT_VIEWRANGE", out float gR1) && gR1 > 0)
+                            WM.guardRange = Mathf.Min(WM.guardRange, gR1);
+                        if (CompSettings.CompOverrides.TryGetValue("guardAngle", out float gA) && gA > 0)
+                            WM.guardAngle = Mathf.Min(WM.guardAngle, gA);
+                    }
+                    else //this would cause dual-seat visual range to also apply to dronecore controlled craft, but those should be caught by overall building rules...
+                    {
+                        if (CompSettings.CompOverrides.TryGetValue("DUALCOCKPIT_VIEWRANGE", out float gR2) && gR2 > 0)
+                            WM.guardRange = Mathf.Min(WM.guardRange, gR2);
+                    }
+                }
+            }
         }
         #endregion
     }
