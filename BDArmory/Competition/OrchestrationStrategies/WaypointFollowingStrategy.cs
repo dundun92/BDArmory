@@ -106,7 +106,7 @@ namespace BDArmory.Competition.OrchestrationStrategies
             else
             {
                 var checkLandedOrSplashed = pilots.ToDictionary(p => p, p => p as BDModuleSurfaceAI == null);
-                yield return new WaitWhile(() => pilots.Any(pilot => pilot != null && pilot.weaponManager != null && pilot.IsRunningWaypoints && (pilot.TakingOff || (checkLandedOrSplashed[pilot] && !pilot.vessel.LandedOrSplashed))));
+                yield return new WaitWhile(() => pilots.Any(pilot => pilot != null && pilot.weaponManager != null && pilot.IsRunningWaypoints)); // && (pilot.TakingOff || (checkLandedOrSplashed[pilot] && !pilot.vessel.LandedOrSplashed))));
             }
             var endedAt = Planetarium.GetUniversalTime();
 
