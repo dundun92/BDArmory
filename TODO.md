@@ -4,14 +4,19 @@
 - Changing the slider resolution sometimes triggers clamping of unclamped values
 - Taking off with the global 'P' button for two VTOL craft on the runway disables their engines!
 - WM without AI or with stationary ground AI sometimes just sits there without attacking valid targets.
+- Check whether `base.OnStart(state);` in `MissileLauncher.OnStart` can be re-enabled and some common stuff be moved to MissileBase.cs.
+- Improve custom turret aiming.
+- Rewrite the waypoints mode competition/tournament code to get rid of the remote orchestration (TournamentCoordinator) stuff.
+	- Add a racing grid spawn layout MxN facing the first waypoint and get custom spawn templates working with waypoints.
+
+- Clean up invalid UTF-8 chars by searching for `[^\x00-\x7f±°ñ—α→θψφρqω₀π²·δ↔∫•∈"γgμν‽Δ↕]` (add more to exclude as necessary). Ignore localisation files.
 
 ### TODO (smaller items and specific requests / higher priority)
 - Fix bugs
 	- Sometimes the field toggles in ModuleWeapon (and elsewhere) throw InvalidCast exceptions on startup. Suspect a race condition.
-- Clean up VesselType assignment to allow more than just Plane and Ship.
-- Motherships branch -> reimplemented as multi-craft branch
 - Finish Gauntlet tournament heats if only opponent craft are left as only relative ranking of variants is relevant.
 - Resource stealing of integer amounts should consider integer amounts per container, not overall.
+- Cts spawn with NPCs
 
 - Wiki entries
 	- Auto-Tuning
@@ -58,7 +63,6 @@
 - Figure out why bullet hole decals are frequently offset behind the craft. - krakensbane or flightintegrator at time of decal attachment?
 - Inertial correction to pitch, roll, yaw errors for PID calcuations. Rotate the vessel reference transform first, computing debugPos2 from the top 
 - Low altitude AI setting should be aware of killer GM low altitude.
-- Proper 3-axis PID sliders + single PID with axis weighting
 - Memory for AI state so that it can resume once finished extending/evading instead of just scanning for new targets.
 - Tag mode should disable team icons to get colours right
 - Improve the VTOL AI:
@@ -85,7 +89,7 @@
 	- Boss fight tournament mode
 - Record starting conditions for bullets, position every 1000m and time and position of first impact in vessel traces. Also, bullet type. This should be sufficient for approximate curves in blender and colours, etc. can be found from the configs.
 - Add a max morgue capacity and recycle kerbals once it's full. Regen the main 4 and discard the others? Would need special handling for custom kerbals.
-- Profile the infinite ordinance option for spawning missile parts. "I wonder if it's possible to avoid a lot of the spawning cost and memory leakage by detaching the Vessel component from the missile prior to getting destroyed, packing and disabling it, then attaching, unpacking and enabling it on a new missile? Something to look at in the future..."
+- Profile the infinite ordnance option for spawning missile parts. "I wonder if it's possible to avoid a lot of the spawning cost and memory leakage by detaching the Vessel component from the missile prior to getting destroyed, packing and disabling it, then attaching, unpacking and enabling it on a new missile? Something to look at in the future..."
 - Strafing planes are wobbly initially (maybe at low speeds in general?)
 
 

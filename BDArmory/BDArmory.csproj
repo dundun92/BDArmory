@@ -169,6 +169,7 @@
     <Compile Include="CounterMeasure\ModuleECMJammer.cs" />
     <Compile Include="CounterMeasure\VesselChaffInfo.cs" />
     <Compile Include="CounterMeasure\VesselCloakInfo.cs" />
+    <Compile Include="CounterMeasure\VesselCMDropperInfo.cs" />
     <Compile Include="CounterMeasure\VesselECMJInfo.cs" />
     <Compile Include="Damage\BuildingDamage.cs" />
     <Compile Include="Damage\DamageService.cs" />
@@ -194,6 +195,7 @@
     <Compile Include="Extensions\CrewExtensions.cs" />
     <Compile Include="Extensions\DictionaryExtensions.cs" />
     <Compile Include="Extensions\FloatExtensions.cs" />
+    <Compile Include="Extensions\OrbitExtensions.cs" />
     <Compile Include="Extensions\PartExtensions.cs" />
     <Compile Include="Extensions\VectorExtensions.cs" />
     <Compile Include="Extensions\VesselExtensions.cs" />
@@ -228,13 +230,16 @@
     <Compile Include="Initialization\Dependencies.cs" />
     <Compile Include="ModIntegration\BDATeamIcons.cs" />
     <Compile Include="ModIntegration\CameraTools.cs" />
+    <Compile Include="ModIntegration\ConformalDecals.cs" />
     <Compile Include="ModIntegration\ModuleManager.cs" />
     <Compile Include="ModIntegration\MouseAimFlight.cs" />
     <Compile Include="ModIntegration\PhysicsRangeExtender.cs" />
     <Compile Include="ModIntegration\ReflectionUtils.cs" />
     <Compile Include="Modules\CFEnable.cs" />
     <Compile Include="Modules\KerbalSafety.cs" />
+    <Compile Include="Modules\KerbalSuitSelector.cs" />
     <Compile Include="Modules\ModuleMovingPart.cs" />
+    <Compile Include="Modules\ModuleHMD.cs" />
     <Compile Include="Modules\ModuleSelfSealingTank.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Radar\ModuleIRST.cs" />
@@ -338,6 +343,7 @@
     <Compile Include="WeaponMounts\BDDeployableRail.cs" />
     <Compile Include="WeaponMounts\BDRotaryRail.cs" />
     <Compile Include="WeaponMounts\MissileTurret.cs" />
+    <Compile Include="WeaponMounts\ModuleCustomTurret.cs" />
     <Compile Include="WeaponMounts\ModuleTurret.cs" />
     <Compile Include="WeaponMounts\WMTurretGroup.cs" />
     <Compile Include="Weapons\BDCustomWarhead.cs" />
@@ -396,7 +402,7 @@
     <None Include="Distribution\GameData\BDArmory\KSPedia\bdac fixed guns.ksp" />
     <None Include="Distribution\GameData\BDArmory\KSPedia\bdac guidance types.ksp" />
     <None Include="Distribution\GameData\BDArmory\KSPedia\bdac modules.ksp" />
-    <None Include="Distribution\GameData\BDArmory\KSPedia\bdac ordinance.ksp" />
+    <None Include="Distribution\GameData\BDArmory\KSPedia\bdac ordnance.ksp" />
     <None Include="Distribution\GameData\BDArmory\KSPedia\bdac radar and targeting.ksp" />
     <None Include="Distribution\GameData\BDArmory\KSPedia\bdac settings.ksp" />
     <None Include="Distribution\GameData\BDArmory\KSPedia\bdac turrets.ksp" /> -->
@@ -801,7 +807,7 @@
     <Content Include="Distribution\GameData\BDArmory\Parts\m230ChainGun\smoke.png" />
     <Content Include="Distribution\GameData\BDArmory\Parts\m230ChainGun\texture.png" />
     <Content Include="Distribution\GameData\BDArmory\Parts\maverick\texture.png" />
-    <Content Include="Distribution\GameData\BDArmory\Parts\MissileBay\ordinanceBay.png" />
+    <Content Include="Distribution\GameData\BDArmory\Parts\MissileBay\ordnanceBay.png" />
     <Content Include="Distribution\GameData\BDArmory\Parts\missileTurret\tex_detectionRadar.png" />
     <Content Include="Distribution\GameData\BDArmory\Parts\missileTurret\tex_lockingTurret.png" />
     <Content Include="Distribution\GameData\BDArmory\Parts\missileTurret\tex_missileTurret.png" />

@@ -1,15 +1,15 @@
-using KSP.UI.Screens;
-using System.Collections.Generic;
-using System.Collections;
-using System.Linq;
-using System;
-using UnityEngine;
-using static UnityEngine.GUILayout;
-
 using BDArmory.Control;
+using BDArmory.Extensions;
 using BDArmory.Settings;
 using BDArmory.Utils;
-using BDArmory.Extensions;
+using KSP.UI.Screens;
+using LibNoise.Models;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+using static UnityEngine.GUILayout;
 
 namespace BDArmory.UI
 {
@@ -22,6 +22,7 @@ namespace BDArmory.UI
         public static bool NumFieldsEnabled = false;
         public static bool windowBDAAIGUIEnabled;
         internal static bool resizingWindow = false;
+        internal static bool autoResizingWindow = true;
         internal static int _guiCheckIndex = -1;
 
         public static ApplicationLauncherButton button;
@@ -35,7 +36,7 @@ namespace BDArmory.UI
         const float _windowMargin = 4;
         const float contentTop = 10;
         const float entryHeight = 20;
-        bool checkForAI = false; // Flag to indicate that a new check for AI needs to happen (instead of responding to every event).
+        public bool checkForAI = false; // Flag to indicate that a new check for AI needs to happen (instead of responding to every event).
 
         int Drivertype = 0;
         int broadsideDir = 0;
@@ -45,11 +46,11 @@ namespace BDArmory.UI
         public BDModuleOrbitalAI.PIDModeTypes[] PIDModeTypes = (BDModuleOrbitalAI.PIDModeTypes[])Enum.GetValues(typeof(BDModuleOrbitalAI.PIDModeTypes)); // Get the PID mode as an array of enum values.
         public BDModuleOrbitalAI.RollModeTypes[] RollModeTypes = (BDModuleOrbitalAI.RollModeTypes[])Enum.GetValues(typeof(BDModuleOrbitalAI.RollModeTypes)); // Get the roll mode as an array of enum values.
 
-        public enum ActiveAIType { PilotAI, SurfaceAI, VTOLAI, OrbitalAI, None }; // Order of priority of AIs.
-        public ActiveAIType activeAIType = ActiveAIType.None;
-        public BDGenericAIBase ActiveAI;
+        public AIType activeAIType = AIType.None;
+        public BDGenericAIBase ActiveAI; // Note: we don't use the usual ActiveController pattern as we need more control for the numeric input fields.
+        List<IBDAIControl> AIs = []; // A list of the AIs for use in the Editor.
 
-        Dictionary<ActiveAIType, Vector2> scrollViewVectors = [];
+        Dictionary<AIType, Vector2> scrollViewVectors = [];
         private Vector2 scrollInfoVector;
 
         public static BDArmoryAIGUI Instance;
@@ -158,6 +159,8 @@ namespace BDArmory.UI
             BDAWindowSettingsField.Save(); // Save window settings.
             if (button != null) button.SetFalse(false);
             if (HighLogic.LoadedSceneIsEditor) GUIUtils.PreventClickThrough(BDArmorySetup.WindowRectAI, "AIGUI lock", true);
+            AIs.Clear();
+            AISelectionComboBox = null;
         }
 
         void Dummy()
@@ -170,6 +173,7 @@ namespace BDArmory.UI
             {
                 ToggleAIGUI();
             }
+            if (!windowBDAAIGUIEnabled) return;
             if (checkForAI) // Only happens during flight.
             {
                 GetAI();
@@ -189,21 +193,21 @@ namespace BDArmory.UI
 
         void OnVesselModified(Vessel v) // Active AI was on a part that got detached from the active vessel.
         {
-            if (!windowBDAAIGUIEnabled || activeAIType == ActiveAIType.None) return;
+            if (!windowBDAAIGUIEnabled || activeAIType == AIType.None) return;
             if (v == null) return;
             if (v.isActiveVessel && (ActiveAI == null || ActiveAI.vessel != v)) // Was an active vessel with an AI, but the AI is now gone or on another vessel.
             {
-                activeAIType = ActiveAIType.None;
+                activeAIType = AIType.None;
                 checkForAI = true;
             }
         }
 
         void OnPartDestroyed(Part p)
         {
-            if (!windowBDAAIGUIEnabled || activeAIType == ActiveAIType.None) return;
+            if (!windowBDAAIGUIEnabled || activeAIType == AIType.None) return;
             if (ActiveAI == null) // We had an AI, but now it's gone...
             {
-                activeAIType = ActiveAIType.None;
+                activeAIType = AIType.None;
                 checkForAI = true;
             }
         }
@@ -215,37 +219,16 @@ namespace BDArmory.UI
 
         private void OnEditorPartPlacedEvent(Part p)
         {
+            if (!windowBDAAIGUIEnabled) return;
             if (p == null) return;
-
-            foreach (var aiType in Enum.GetValues(typeof(ActiveAIType)) as ActiveAIType[]) // Check for AIs in the order defined in the enum.
-            {
-                if (aiType == activeAIType && ActiveAI != null) return; // We have an active AI of this type already.
-                BDGenericAIBase aiQuery = aiType switch
-                {
-                    ActiveAIType.PilotAI => p.FindModuleImplementing<BDModulePilotAI>(),
-                    ActiveAIType.SurfaceAI => p.FindModuleImplementing<BDModuleSurfaceAI>(),
-                    ActiveAIType.VTOLAI => p.FindModuleImplementing<BDModuleVTOLAI>(),
-                    ActiveAIType.OrbitalAI => p.FindModuleImplementing<BDModuleOrbitalAI>(),
-                    _ => null
-                };
-                if (aiQuery == null) continue; // None of this type found.
-                activeAIType = aiType;
-                ActiveAI = aiQuery;
-                SetInputFields(aiType);
-                SetChooseOptionSliders();
-                return;
-            }
-            // Nothing found.
-            activeAIType = ActiveAIType.None;
-            ActiveAI = null;
+            GetAIEditor(); // We need to check if we have a new AI or if the ordering has changed.
         }
 
         private void OnEditorPartDeletedEvent(Part p)
         {
-            if (activeAIType != ActiveAIType.None || ActiveAI != null) // If we had an active AI, we need to check to see if it's disappeared.
-            {
+            if (!windowBDAAIGUIEnabled) return;
+            if (activeAIType != AIType.None) // If we had an active AI, we need to check to see if it's disappeared.
                 GetAIEditor(); // We can't just check the part as it's now null.
-            }
         }
 
         void GetAI()
@@ -258,10 +241,10 @@ namespace BDArmory.UI
         Coroutine _getAICoroutine;
         IEnumerator GetAICoroutine()
         {
-            // Then, reset all the fields as this is only occurring on vessel change, so they need resetting anyway.
             ActiveAI = null;
-            activeAIType = ActiveAIType.None;
+            activeAIType = AIType.None;
             inputFields = null;
+            AISelectionComboBox = null;
             var tic = Time.time;
             if (FlightGlobals.ActiveVessel == null)
             {
@@ -269,23 +252,10 @@ namespace BDArmory.UI
                 if (FlightGlobals.ActiveVessel == null) yield break;
             }
             // Now, get the new AI and update stuff.
-            foreach (var aiType in Enum.GetValues(typeof(ActiveAIType)) as ActiveAIType[])
-            {
-                BDGenericAIBase aiQuery = aiType switch
-                {
-                    ActiveAIType.PilotAI => VesselModuleRegistry.GetBDModulePilotAI(FlightGlobals.ActiveVessel, true),
-                    ActiveAIType.SurfaceAI => VesselModuleRegistry.GetBDModuleSurfaceAI(FlightGlobals.ActiveVessel, true),
-                    ActiveAIType.VTOLAI => VesselModuleRegistry.GetModule<BDModuleVTOLAI>(FlightGlobals.ActiveVessel, true),
-                    ActiveAIType.OrbitalAI => VesselModuleRegistry.GetModule<BDModuleOrbitalAI>(FlightGlobals.ActiveVessel, true),
-                    _ => null
-                };
-                if (aiQuery == null) continue; // None of this type found.
-                activeAIType = aiType;
-                ActiveAI = aiQuery;
-                SetInputFields(aiType);
-                SetChooseOptionSliders();
-                yield break;
-            }
+            ActiveAI = FlightGlobals.ActiveVessel.ActiveController().AI as BDGenericAIBase;
+            activeAIType = ActiveAI == null ? AIType.None : ActiveAI.aiType;
+            SetInputFields(activeAIType);
+            SetChooseOptionSliders();
         }
 
         void GetAIEditor()
@@ -296,42 +266,51 @@ namespace BDArmory.UI
         Coroutine _getAIEditorCoroutine;
         IEnumerator GetAIEditorCoroutine()
         {
+            AISelectionComboBox = null; // Clear the combobox to reset it.
             var tic = Time.time;
             if (EditorLogic.fetch.ship == null || EditorLogic.fetch.ship.Parts == null)
                 yield return new WaitUntilFixed(() => (EditorLogic.fetch.ship != null && EditorLogic.fetch.ship.Parts != null) || Time.time - tic > 1); // Give it up to a second to find the editor ship and parts.
-            if (EditorLogic.fetch.ship != null && EditorLogic.fetch.ship.Parts != null)
+            var ship = EditorLogic.fetch.ship;
+            if (ship != null && ship.Parts != null)
             {
-                foreach (var p in EditorLogic.fetch.ship.Parts) // Take the AIs in the order they were placed on the ship.
+                AIs = [.. ship.Parts.SelectMany(part => part.FindModulesImplementing<IBDAIControl>()).Where(ai => ai != null)];
+                if (AIs.Count > 0)
                 {
-                    foreach (var aiType in Enum.GetValues(typeof(ActiveAIType)) as ActiveAIType[])
-                    {
-                        List<BDGenericAIBase> aiQuery = aiType switch
-                        {
-                            ActiveAIType.PilotAI => p.FindModulesImplementing<BDModulePilotAI>().ConvertAll(ai => ai as BDGenericAIBase),
-                            ActiveAIType.SurfaceAI => p.FindModulesImplementing<BDModuleSurfaceAI>().ConvertAll(ai => ai as BDGenericAIBase),
-                            ActiveAIType.VTOLAI => p.FindModulesImplementing<BDModuleVTOLAI>().ConvertAll(ai => ai as BDGenericAIBase),
-                            ActiveAIType.OrbitalAI => p.FindModulesImplementing<BDModuleOrbitalAI>().ConvertAll(ai => ai as BDGenericAIBase),
-                            _ => null
-                        };
-                        if (aiQuery == null || aiQuery.Count == 0) continue; // None of this type found.
-                        foreach (var ai in aiQuery)
-                        {
-                            if (ai == null) continue;
-                            if (ai == ActiveAI) yield break; // We found the current active AI!
-                            activeAIType = aiType;
-                            ActiveAI = ai;
-                            SetInputFields(aiType);
-                            SetChooseOptionSliders();
-                            yield break;
-                        }
-                    }
+                    var rootPart = ship.Parts.First(); while (rootPart.parent != null) rootPart = rootPart.parent;
+                    VesselModuleRegistry.SortByProximityToRootIBDAI(ref AIs, rootPart);
+                    if (ActiveAI == AIs.First() as BDGenericAIBase) yield break; // It's the same AI, do nothing.
+                    ActiveAI = AIs.First() as BDGenericAIBase; // Switch back to the primary AI.
+                    activeAIType = ActiveAI.aiType;
+                    SetInputFields(activeAIType);
+                    SetChooseOptionSliders();
+                    yield break;
                 }
             }
 
             // No AIs were found, clear everything.
-            activeAIType = ActiveAIType.None;
+            activeAIType = AIType.None;
             ActiveAI = null;
             inputFields = null;
+            AIs.Clear();
+        }
+
+        /// <summary>
+        /// Get the proximity to the root part.
+        /// </summary>
+        /// <param name="part"></param>
+        /// <returns>Proximity to the root part or int.MaxValue if not connected to the root part.</returns>
+        public static int ProximityToRoot(Part part, Part root)
+        {
+            int proximity = 0;
+            Part currentPart = part;
+            while (currentPart != null && currentPart != root)
+            {
+                currentPart = currentPart.parent;
+                ++proximity;
+            }
+            if (currentPart == null)
+                return int.MaxValue;
+            return proximity;
         }
 
         /// <summary>
@@ -341,7 +320,7 @@ namespace BDArmory.UI
         /// <param name="gAI">The AI.</param>
         /// <param name="fieldName">The name of the field to look at.</param>
         /// <returns>value, minValue, maxValue, (rounding, sigFig, withZero)</returns>
-        (float, float, float, (float, float, bool, bool)) GetAIFieldLimits(ActiveAIType aiType, BDGenericAIBase gAI, string fieldName)
+        (float, float, float, (float, float, bool, bool)) GetAIFieldLimits(AIType aiType, BDGenericAIBase gAI, string fieldName)
         {
             float value = 0, minValue = 0, maxValue = 0, rounding = 0, sigFig = 0;
             bool withZero = false, reducedPrecisionAtMin = false;
@@ -350,6 +329,7 @@ namespace BDArmory.UI
                 (float, float, float, float, bool, bool) GetLimits(UI_FloatRange uic)
                 {
                     if (uic is UI_FloatSemiLogRange) (minValue, maxValue, rounding, sigFig, withZero, reducedPrecisionAtMin) = (uic as UI_FloatSemiLogRange).GetLimits();
+                    else if (uic is UI_FloatLogRange) (minValue, maxValue, rounding, sigFig) = (uic as UI_FloatLogRange).GetLimits(); // (min, max, 0, steps)
                     else if (uic is UI_FloatPowerRange) (minValue, maxValue, rounding, sigFig) = (uic as UI_FloatPowerRange).GetLimits();
                     else
                     {
@@ -361,7 +341,7 @@ namespace BDArmory.UI
                 }
                 switch (aiType)
                 {
-                    case ActiveAIType.PilotAI:
+                    case AIType.PilotAI:
                         {
                             var AI = gAI as BDModulePilotAI;
                             var uic = (HighLogic.LoadedSceneIsFlight ? AI.Fields[fieldName].uiControlFlight : AI.Fields[fieldName].uiControlEditor) as UI_FloatRange;
@@ -369,7 +349,7 @@ namespace BDArmory.UI
                             value = (float)typeof(BDModulePilotAI).GetField(fieldName).GetValue(AI);
                         }
                         break;
-                    case ActiveAIType.SurfaceAI:
+                    case AIType.SurfaceAI:
                         {
                             var AI = gAI as BDModuleSurfaceAI;
                             var uic = (HighLogic.LoadedSceneIsFlight ? AI.Fields[fieldName].uiControlFlight : AI.Fields[fieldName].uiControlEditor) as UI_FloatRange;
@@ -377,7 +357,7 @@ namespace BDArmory.UI
                             value = (float)typeof(BDModuleSurfaceAI).GetField(fieldName).GetValue(AI);
                         }
                         break;
-                    case ActiveAIType.VTOLAI:
+                    case AIType.VTOLAI:
                         {
                             var AI = gAI as BDModuleVTOLAI;
                             var uic = (HighLogic.LoadedSceneIsFlight ? AI.Fields[fieldName].uiControlFlight : AI.Fields[fieldName].uiControlEditor) as UI_FloatRange;
@@ -385,7 +365,7 @@ namespace BDArmory.UI
                             value = (float)typeof(BDModuleVTOLAI).GetField(fieldName).GetValue(AI);
                         }
                         break;
-                    case ActiveAIType.OrbitalAI:
+                    case AIType.OrbitalAI:
                         {
                             var AI = gAI as BDModuleOrbitalAI;
                             var uic = (HighLogic.LoadedSceneIsFlight ? AI.Fields[fieldName].uiControlFlight : AI.Fields[fieldName].uiControlEditor) as UI_FloatRange;
@@ -424,18 +404,18 @@ namespace BDArmory.UI
         /// Note: only UI_FloatRange derived entries should be included here.
         /// </summary>
         /// <param name="aiType">The type of the currently active AI.</param>
-        void SetInputFields(ActiveAIType aiType)
+        void SetInputFields(AIType aiType)
         {
             // Note: We use nameof(AI.field) to get the fieldname to avoid typos.
             switch (aiType)
             {
-                case ActiveAIType.PilotAI:
+                case AIType.PilotAI:
                     {
                         var AI = ActiveAI as BDModulePilotAI;
                         if (AI == null)
                         {
                             Debug.LogError($"[BDArmory.BDArmoryAIGUI]: Mismatch between AI type and actual AI.");
-                            activeAIType = ActiveAIType.None;
+                            activeAIType = AIType.None;
                             inputFields = null;
                             return;
                         }
@@ -458,6 +438,15 @@ namespace BDArmory.UI
                             nameof(AI.DynamicDampingRollMin),
                             nameof(AI.DynamicDampingRollMax),
                             nameof(AI.dynamicSteerDampingRollFactor),
+                            nameof(AI.threeAxisPIDPitchMult),
+                            nameof(AI.threeAxisPIDPitchKi),
+                            nameof(AI.threeAxisPIDPitchDamping),
+                            nameof(AI.threeAxisPIDYawMult),
+                            nameof(AI.threeAxisPIDYawKi),
+                            nameof(AI.threeAxisPIDYawDamping),
+                            nameof(AI.threeAxisPIDRollMult),
+                            nameof(AI.threeAxisPIDRollKi),
+                            nameof(AI.threeAxisPIDRollDamping),
 
                             nameof(AI.autoTuningOptionNumSamples),
                             nameof(AI.autoTuningOptionFastResponseRelevance),
@@ -505,6 +494,7 @@ namespace BDArmory.UI
                             nameof(AI.vesselCollisionAvoidanceLookAheadPeriod),
                             nameof(AI.vesselCollisionAvoidanceStrength),
                             nameof(AI.vesselStandoffDistance),
+                            nameof(AI.AvoidMass), 
                             nameof(AI.extendDistanceAirToAir),
                             nameof(AI.extendAngleAirToAir),
                             nameof(AI.extendDistanceAirToGroundGuns),
@@ -531,13 +521,13 @@ namespace BDArmory.UI
                         showSection[Section.UpToEleven] = AI.UpToEleven;
                     }
                     break;
-                case ActiveAIType.SurfaceAI:
+                case AIType.SurfaceAI:
                     {
                         var AI = ActiveAI as BDModuleSurfaceAI;
                         if (AI == null)
                         {
                             Debug.LogError($"[BDArmory.BDArmoryAIGUI]: Mismatch between AI type and actual AI.");
-                            activeAIType = ActiveAIType.None;
+                            activeAIType = AIType.None;
                             inputFields = null;
                             return;
                         }
@@ -562,13 +552,13 @@ namespace BDArmory.UI
                         showSection[Section.UpToEleven] = AI.UpToEleven;
                     }
                     break;
-                case ActiveAIType.VTOLAI:
+                case AIType.VTOLAI:
                     {
                         var AI = ActiveAI as BDModuleVTOLAI;
                         if (AI == null)
                         {
                             Debug.LogError($"[BDArmory.BDArmoryAIGUI]: Mismatch between AI type and actual AI.");
-                            activeAIType = ActiveAIType.None;
+                            activeAIType = AIType.None;
                             inputFields = null;
                             return;
                         }
@@ -586,6 +576,7 @@ namespace BDArmory.UI
                             nameof(AI.WeaveFactor),
                             nameof(AI.MinEngagementRange),
                             nameof(AI.MaxEngagementRange),
+                            nameof(AI.AvoidMass),
                         }.ToDictionary(key => key, key =>
                         {
                             var (value, minValue, maxValue, meta) = GetAIFieldLimits(aiType, ActiveAI, key);
@@ -594,13 +585,13 @@ namespace BDArmory.UI
                         showSection[Section.UpToEleven] = AI.UpToEleven;
                     }
                     break;
-                case ActiveAIType.OrbitalAI:
+                case AIType.OrbitalAI:
                     {
                         var AI = ActiveAI as BDModuleOrbitalAI;
                         if (AI == null)
                         {
                             Debug.LogError($"[BDArmory.BDArmoryAIGUI]: Mismatch between AI type and actual AI.");
-                            activeAIType = ActiveAIType.None;
+                            activeAIType = AIType.None;
                             inputFields = null;
                             return;
                         }
@@ -646,10 +637,10 @@ namespace BDArmory.UI
             }
             switch (activeAIType)
             {
-                case ActiveAIType.PilotAI: SetInputFieldValues(ActiveAI as BDModulePilotAI, fromInputFields); break;
-                case ActiveAIType.SurfaceAI: SetInputFieldValues(ActiveAI as BDModuleSurfaceAI, fromInputFields); break;
-                case ActiveAIType.VTOLAI: SetInputFieldValues(ActiveAI as BDModuleVTOLAI, fromInputFields); break;
-                case ActiveAIType.OrbitalAI: SetInputFieldValues(ActiveAI as BDModuleOrbitalAI, fromInputFields); break;
+                case AIType.PilotAI: SetInputFieldValues(ActiveAI as BDModulePilotAI, fromInputFields); break;
+                case AIType.SurfaceAI: SetInputFieldValues(ActiveAI as BDModuleSurfaceAI, fromInputFields); break;
+                case AIType.VTOLAI: SetInputFieldValues(ActiveAI as BDModuleVTOLAI, fromInputFields); break;
+                case AIType.OrbitalAI: SetInputFieldValues(ActiveAI as BDModuleOrbitalAI, fromInputFields); break;
                 default: return;
             }
         }
@@ -700,20 +691,20 @@ namespace BDArmory.UI
             if (ActiveAI == null) return;
             switch (activeAIType)
             {
-                case ActiveAIType.SurfaceAI:
+                case AIType.SurfaceAI:
                     {
                         var AI = ActiveAI as BDModuleSurfaceAI;
                         Drivertype = VehicleMovementTypes.IndexOf(AI.SurfaceType);
                         broadsideDir = AI.orbitDirections.IndexOf(AI.OrbitDirectionName);
                     }
                     break;
-                case ActiveAIType.VTOLAI:
+                case AIType.VTOLAI:
                     {
                         var AI = ActiveAI as BDModuleVTOLAI;
                         broadsideDir = AI.orbitDirections.IndexOf(AI.OrbitDirectionName);
                     }
                     break;
-                case ActiveAIType.OrbitalAI:
+                case AIType.OrbitalAI:
                     {
                         var AI = ActiveAI as BDModuleOrbitalAI;
                         pidMode = AI.pidModes.IndexOf(AI.pidMode);
@@ -734,7 +725,7 @@ namespace BDArmory.UI
             if (HighLogic.LoadedSceneIsFlight) BDArmorySetup.SetGUIOpacity();
             if (resizingWindow && Event.current.type == EventType.MouseUp) { resizingWindow = false; }
             if (BDArmorySettings.UI_SCALE_ACTUAL != 1) GUIUtility.ScaleAroundPivot(BDArmorySettings.UI_SCALE_ACTUAL * Vector2.one, BDArmorySetup.WindowRectAI.position);
-            BDArmorySetup.WindowRectAI = GUI.Window(GUIUtility.GetControlID(FocusType.Passive), BDArmorySetup.WindowRectAI, WindowRectAI, "", BDArmorySetup.BDGuiSkin.window);//"BDA Weapon Manager"
+            BDArmorySetup.WindowRectAI = GUI.Window(GUIUtility.GetControlID(FocusType.Passive), BDArmorySetup.WindowRectAI, WindowAIGUI, "", BDArmorySetup.BDGuiSkin.window);//"BDA Weapon Manager"
             if (HighLogic.LoadedSceneIsFlight) BDArmorySetup.SetGUIOpacity(false);
         }
 
@@ -779,9 +770,9 @@ namespace BDArmory.UI
         const float labelWidth = 200;
         const float sliderIndent = contentInnerMargin + labelWidth;
 
-        Rect TitleButtonRect(float offset)
+        Rect TitleButtonRect(float offset, float width = 1)
         {
-            return new Rect((ColumnWidth * 2) - _windowMargin - (offset * _buttonSize), _windowMargin, _buttonSize, _buttonSize);
+            return new Rect((ColumnWidth * 2) - _windowMargin - (offset * _buttonSize), _windowMargin, width * _buttonSize, _buttonSize);
         }
         Rect SubsectionRect(float line)
         {
@@ -820,7 +811,7 @@ namespace BDArmory.UI
             return new Rect(contentInnerMargin + pos / of * (contentWidth - gap * (of - 1f) - 2f * contentInnerMargin) + pos * gap, lines * entryHeight, 1f / of * (contentWidth - gap * (of - 1f) - 2f * contentInnerMargin), entryHeight);
         }
 
-        enum ContentType { FloatSlider, SemiLogSlider, Toggle, Button };
+        enum ContentType { FloatSlider, SemiLogSlider, FloatLogSlider, Toggle, Button };
         float ContentEntry(ContentType contentType, float line, float width, ref float value, string fieldName, string baseLOC, string formattedValue, bool splitContext = false)
         {
             switch (contentType)
@@ -831,7 +822,6 @@ namespace BDArmory.UI
                         if (!NumFieldsEnabled)
                         {
                             var (min, max, rounding, _, _, _) = GetFieldLimits(fieldName);
-                            if (fieldName == "firingSpeed") Debug.Log($"DEBUG min: {min}, max: {max}, rounding: {rounding}");
                             if (value != (value = GUI.HorizontalSlider(SettingSliderRect(line, width), value, min, max)) && rounding > 0)
                                 value = BDAMath.RoundToUnit(value, rounding);
                         }
@@ -861,8 +851,36 @@ namespace BDArmory.UI
                             var (min, max, rounding, sigFig, withZero, reducedPrecisionAtMin) = GetFieldLimits(fieldName);
                             if (!cacheSemiLogLimits.ContainsKey(fieldName)) { cacheSemiLogLimits[fieldName] = null; }
                             var cache = cacheSemiLogLimits[fieldName];
-                            if (value != (value = GUIUtils.HorizontalSemiLogSlider(SettingSliderRect(line, width), value, min, max, sigFig, withZero, reducedPrecisionAtMin, ref cache)) && rounding > 0)
-                                value = BDAMath.RoundToUnit(value, rounding);
+                            value = GUIUtils.HorizontalSemiLogSlider(SettingSliderRect(line, width), value, min, max, sigFig, withZero, reducedPrecisionAtMin, ref cache);
+                            // Rounding is built into GUIUtils.HorizontalSemiLogSlider.
+                        }
+                        else
+                        {
+                            var field = inputFields[fieldName];
+                            field.tryParseValue(GUI.TextField(SettingTextRect(line, width), field.possibleValue, 8, field.style));
+                            value = (float)field.currentValue;
+                        }
+                        if (contextTipsEnabled)
+                        {
+                            if (splitContext)
+                            {
+                                GUI.Label(ContextLabelRect(++line), StringUtils.Localize($"#LOC_BDArmory_AIWindow_{baseLOC}_ContextLow"), Label);
+                                GUI.Label(ContextLabelRectRight(line, width), StringUtils.Localize($"#LOC_BDArmory_AIWindow_{baseLOC}_ContextHigh"), contextLabelRight);
+                            }
+                            else GUI.Label(ContextLabelRect(++line, width), StringUtils.Localize($"#LOC_BDArmory_AIWindow_{baseLOC}_Context"), contextLabel);
+                        }
+                        ++line;
+                    }
+                    break;
+                case ContentType.FloatLogSlider:
+                    {
+                        GUI.Label(SettinglabelRect(line), StringUtils.Localize($"#LOC_BDArmory_AIWindow_{baseLOC}") + ": " + formattedValue, Label);
+                        if (!NumFieldsEnabled)
+                        {
+                            var (min, max, _, steps, _, _) = GetFieldLimits(fieldName);
+                            if (!cacheSemiLogLimits.ContainsKey(fieldName)) { cacheSemiLogLimits[fieldName] = null; }
+                            var cache = cacheSemiLogLimits[fieldName];
+                            value = GUIUtils.HorizontalFloatLogSlider(SettingSliderRect(line, width), value, min, max, (int)steps, ref cache);
                         }
                         else
                         {
@@ -896,16 +914,48 @@ namespace BDArmory.UI
             return line;
         }
         readonly Dictionary<string, (float, float)[]> cacheSemiLogLimits = [];
-        void WindowRectAI(int windowID)
+
+        BDGUIComboBox AISelectionComboBox;
+        int AISelectionIndex = -1;
+        void UpdateAISelectionComboBox(Rect rect)
+        {
+            if (!(HighLogic.LoadedSceneIsEditor || HighLogic.LoadedSceneIsFlight)) return;
+            var primaryAI = (HighLogic.LoadedSceneIsFlight && FlightGlobals.ActiveVessel != null) ? FlightGlobals.ActiveVessel.ActiveController().AI : null;
+            var ais = HighLogic.LoadedSceneIsEditor ? AIs : VesselModuleRegistry.GetIBDAIControls(FlightGlobals.ActiveVessel);
+            GUIContent[] listContent = [.. ais.Select(ai => new GUIContent(ai == primaryAI ? $"* {ai.aiType} *" : $"{ai.aiType}"))];
+            if (listContent.Length > 0)
+            {
+                AISelectionComboBox = new BDGUIComboBox(rect, rect, new GUIContent(ActiveAI as IBDAIControl == primaryAI ? $"* {ActiveAI.aiType} *" : $"{ActiveAI.aiType}"), listContent, (listContent.Length + 1) * _buttonSize + 2 * _windowMargin, BDArmorySetup.BDGuiSkin.button, 1);
+                AISelectionIndex = AISelectionComboBox.SetSelectedItemIndex(ais.FindIndex(ai => ai.pilotEnabled));
+            }
+            else
+                AISelectionComboBox = null;
+        }
+
+        void WindowAIGUI(int windowID)
         {
             if (HighLogic.LoadedSceneIsEditor) GUIUtils.PreventClickThrough(BDArmorySetup.WindowRectAI, "AIGUI lock");
             float windowColumns = 2;
             float contentIndent = contentMargin + columnIndent;
             float contentWidth = 2 * ColumnWidth - 2 * contentMargin - columnIndent;
 
-            GUI.DragWindow(new Rect(_windowMargin + _buttonSize * 6, 0, 2 * ColumnWidth - 2 * _windowMargin - 10 * _buttonSize, _windowMargin + _buttonSize));
-
-            GUI.Label(new Rect(100, contentTop, contentWidth, entryHeight), StringUtils.Localize("#LOC_BDArmory_AIWindow_title"), Title);
+            GUI.DragWindow(new Rect(contentIndent + _windowMargin, _windowMargin, contentWidth + _windowMargin - 4 * _buttonSize, _windowMargin + _buttonSize));
+            GUI.Label(new Rect(contentIndent, contentTop, contentWidth - 4 * _buttonSize, entryHeight), StringUtils.Localize("#LOC_BDArmory_AIWindow_title"), Title);
+            #region AI Selection
+            if (ActiveAI != null)
+            {
+                if (AISelectionComboBox == null) UpdateAISelectionComboBox(new Rect(contentMargin, _windowMargin, columnIndent, _buttonSize));
+                if (AISelectionComboBox != null && AISelectionIndex != (AISelectionIndex = AISelectionComboBox.Show()))
+                {
+                    ActiveAI = (
+                        HighLogic.LoadedSceneIsEditor ? AIs[AISelectionIndex]
+                        : VesselModuleRegistry.GetIBDAIControls(FlightGlobals.ActiveVessel).Skip(AISelectionIndex).First()
+                    ) as BDGenericAIBase;
+                    activeAIType = ActiveAI.aiType;
+                    SetInputFields(activeAIType);
+                }
+            }
+            #endregion
 
             if (GUI.Button(TitleButtonRect(1), "X", windowBDAAIGUIEnabled ? BDArmorySetup.BDGuiSkin.button : BDArmorySetup.BDGuiSkin.box)) //Exit Button
             {
@@ -922,7 +972,8 @@ namespace BDArmory.UI
                 SyncInputFieldsNow(!NumFieldsEnabled);
             }
 
-            if (activeAIType == ActiveAIType.None || ActiveAI == null)
+            float minHeight = 0;
+            if (activeAIType == AIType.None || ActiveAI == null)
             {
                 GUI.Label(new Rect(contentMargin, contentTop + (1.75f * entryHeight), contentWidth, entryHeight),
                    StringUtils.Localize("#LOC_BDArmory_AIWindow_NoAI"), Title);// "No AI found."
@@ -933,49 +984,35 @@ namespace BDArmory.UI
                 contentHeight = 0;
                 switch (activeAIType)
                 {
-                    case ActiveAIType.PilotAI:
+                    case AIType.PilotAI:
                         {
                             var AI = ActiveAI as BDModulePilotAI;
-                            if (AI == null) { Debug.LogError($"[BDArmory.BDArmoryAIGUI]: AI module mismatch!"); activeAIType = ActiveAIType.None; break; }
+                            if (AI == null) { Debug.LogError($"[BDArmory.BDArmoryAIGUI]: AI module mismatch!"); activeAIType = AIType.None; break; }
 
+                            if (AISelectionComboBox == null || !AISelectionComboBox.IsOpen)
                             { // Section buttons
-                                GUIStyle saveStyle = BDArmorySetup.BDGuiSkin.button;
-                                if (GUI.Button(new Rect(_windowMargin, _windowMargin, _buttonSize * 3, _buttonSize), "Save", saveStyle))
-                                {
-                                    AI.StoreSettings();
-                                }
-
-                                if (AI.Events["RestoreSettings"].active == true)
-                                {
-                                    GUIStyle restoreStyle = BDArmorySetup.BDGuiSkin.button;
-                                    if (GUI.Button(new Rect(_windowMargin + _buttonSize * 3, _windowMargin, _buttonSize * 3, _buttonSize), "Restore", restoreStyle))
-                                    {
-                                        AI.RestoreSettings();
-                                    }
-                                }
-
                                 float line = 1.5f;
                                 showSection[Section.PID] = GUI.Toggle(SubsectionRect(line), showSection[Section.PID], StringUtils.Localize("#LOC_BDArmory_AIWindow_PID"), showSection[Section.PID] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"PiD"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Altitude] = GUI.Toggle(SubsectionRect(line), showSection[Section.Altitude], StringUtils.Localize("#LOC_BDArmory_AIWindow_Altitudes"), showSection[Section.Altitude] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Altitude"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Speed] = GUI.Toggle(SubsectionRect(line), showSection[Section.Speed], StringUtils.Localize("#LOC_BDArmory_AIWindow_Speeds"), showSection[Section.Speed] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Speed"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Control] = GUI.Toggle(SubsectionRect(line), showSection[Section.Control], StringUtils.Localize("#LOC_BDArmory_AIWindow_Control"), showSection[Section.Control] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Control"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Evasion] = GUI.Toggle(SubsectionRect(line), showSection[Section.Evasion], StringUtils.Localize("#LOC_BDArmory_AIWindow_EvadeExtend"), showSection[Section.Evasion] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Evasion"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Terrain] = GUI.Toggle(SubsectionRect(line), showSection[Section.Terrain], StringUtils.Localize("#LOC_BDArmory_AIWindow_Terrain"), showSection[Section.Terrain] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Terrain"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Ramming] = GUI.Toggle(SubsectionRect(line), showSection[Section.Ramming], StringUtils.Localize("#LOC_BDArmory_AIWindow_Ramming"), showSection[Section.Ramming] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Ramming"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Misc] = GUI.Toggle(SubsectionRect(line), showSection[Section.Misc], StringUtils.Localize("#LOC_BDArmory_AIWindow_Misc"), showSection[Section.Misc] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Misc"
 
                                 line += 1.5f;
@@ -985,11 +1022,32 @@ namespace BDArmory.UI
                                 {
                                     SetInputFields(activeAIType);
                                 }
+
+                                #region Store/Restore
+                                line += 1.5f;
+                                GUIStyle saveStyle = BDArmorySetup.BDGuiSkin.button;
+                                if (GUI.Button(SubsectionRect(line), "Save", saveStyle))
+                                {
+                                    AI.StoreSettings();
+                                }
+
+                                if (AI.Events["RestoreSettings"].active == true)
+                                {
+                                    line += 1f;
+                                    GUIStyle restoreStyle = BDArmorySetup.BDGuiSkin.button;
+                                    if (GUI.Button(SubsectionRect(line), "Restore", restoreStyle))
+                                    {
+                                        AI.RestoreSettings();
+                                    }
+                                }
+                                #endregion
+
+                                minHeight = contentTop + (line + 1f) * entryHeight + _windowMargin;
                             }
 
                             if (showSection[Section.PID] || showSection[Section.Altitude] || showSection[Section.Speed] || showSection[Section.Control] || showSection[Section.Evasion] || showSection[Section.Terrain] || showSection[Section.Ramming] || showSection[Section.Misc])
                             {
-                                scrollViewVectors[ActiveAIType.PilotAI] = GUI.BeginScrollView(new Rect(contentIndent, contentTop + entryHeight * 1.5f, ColumnWidth * 2 - contentIndent, WindowHeight - entryHeight * 1.5f - 2 * contentTop), scrollViewVectors.GetValueOrDefault(ActiveAIType.PilotAI), new Rect(0, 0, contentWidth - contentMargin * 2, height + contentTop));
+                                scrollViewVectors[AIType.PilotAI] = GUI.BeginScrollView(new Rect(contentIndent, contentTop + entryHeight * 1.5f, ColumnWidth * 2 - contentIndent, WindowHeight - entryHeight * 1.5f - 2 * contentTop), scrollViewVectors.GetValueOrDefault(AIType.PilotAI), new Rect(0, 0, contentWidth - contentMargin * 2, height + contentTop));
 
                                 GUI.BeginGroup(new Rect(contentMargin, 0, contentWidth - contentMargin * 2, height + 2 * contentBorder), GUIContent.none, BDArmorySetup.BDGuiSkin.box); //darker box
 
@@ -1003,79 +1061,99 @@ namespace BDArmory.UI
                                     pidLines += 0.25f;
 
                                     GUI.Label(SettinglabelRect(pidLines++), StringUtils.Localize("#LOC_BDArmory_AIWindow_PID"), BoldLabel);
-                                    pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.steerMult, nameof(AI.steerMult), "SteerPower", $"{AI.steerMult:0.0}", splitContext: true);
-                                    pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.steerKiAdjust, nameof(AI.steerKiAdjust), "SteerKi", $"{AI.steerKiAdjust:0.00}", splitContext: true);
-                                    if (!AI.threeAxisSteerDamping && !AI.dynamicSteerDamping)
+                                    if (AI.threeAxisPID)
                                     {
-                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.steerDamping, nameof(AI.steerDamping), "SteerDamping", $"{AI.steerDamping:0.00}", splitContext: true);
+                                        if (AI.threeAxisPID != (AI.threeAxisPID = GUI.Toggle(ToggleButtonRects(pidLines, 0, 1, contentWidth), AI.threeAxisPID, StringUtils.Localize("#LOC_BDArmory_AI_3AxisPID"), AI.threeAxisPID ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button)))
+                                        { AI.OnPIDTogglesChanged(); }
+                                        pidLines += 1.25f;
+                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.threeAxisPIDPitchMult, nameof(AI.threeAxisPIDPitchMult), "3AxisPIDPitchMult", $"{AI.threeAxisPIDPitchMult:0.0}", splitContext: true);
+                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.threeAxisPIDPitchKi, nameof(AI.threeAxisPIDPitchKi), "3AxisPIDPitchKi", $"{AI.threeAxisPIDPitchKi:0.00}", splitContext: true);
+                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.threeAxisPIDPitchDamping, nameof(AI.threeAxisPIDPitchDamping), "3AxisPIDPitchDamping", $"{AI.threeAxisPIDPitchDamping:0.00}", splitContext: true);
+                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.threeAxisPIDYawMult, nameof(AI.threeAxisPIDYawMult), "3AxisPIDYawMult", $"{AI.threeAxisPIDYawMult:0.0}", splitContext: true);
+                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.threeAxisPIDYawKi, nameof(AI.threeAxisPIDYawKi), "3AxisPIDYawKi", $"{AI.threeAxisPIDYawKi:0.00}", splitContext: true);
+                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.threeAxisPIDYawDamping, nameof(AI.threeAxisPIDYawDamping), "3AxisPIDYawDamping", $"{AI.threeAxisPIDYawDamping:0.00}", splitContext: true);
+                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.threeAxisPIDRollMult, nameof(AI.threeAxisPIDRollMult), "3AxisPIDRollMult", $"{AI.threeAxisPIDRollMult:0.0}", splitContext: true);
+                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.threeAxisPIDRollKi, nameof(AI.threeAxisPIDRollKi), "3AxisPIDRollKi", $"{AI.threeAxisPIDRollKi:0.00}", splitContext: true);
+                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.threeAxisPIDRollDamping, nameof(AI.threeAxisPIDRollDamping), "3AxisPIDRollDamping", $"{AI.threeAxisPIDRollDamping:0.00}", splitContext: true);
                                     }
-                                    if (AI.threeAxisSteerDamping != (AI.threeAxisSteerDamping = GUI.Toggle(ToggleButtonRects(pidLines, 0, 2, contentWidth), AI.threeAxisSteerDamping, StringUtils.Localize("#LOC_BDArmory_AI_3AxisSteerDamping"), AI.threeAxisSteerDamping ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button)))
-                                    { AI.OnDampingTogglesChanged(); }
-                                    if (AI.dynamicSteerDamping != (AI.dynamicSteerDamping = GUI.Toggle(ToggleButtonRects(pidLines, 1, 2, contentWidth), AI.dynamicSteerDamping, StringUtils.Localize("#LOC_BDArmory_AI_DynamicDamping"), AI.dynamicSteerDamping ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button)))
-                                    { AI.OnDampingTogglesChanged(); }
-                                    pidLines += 1.25f;
-                                    if (!AI.threeAxisSteerDamping && AI.dynamicSteerDamping)
+                                    else
                                     {
-                                        GUI.Label(SettinglabelRect(pidLines++), StringUtils.Localize("#LOC_BDArmory_AI_DynamicDamping") + $": {AI.dynSteerDampingValue}", Label);
-                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingMin, nameof(AI.DynamicDampingMin), "DynDampMin", $"{AI.DynamicDampingMin:0.0}");
-                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingMax, nameof(AI.DynamicDampingMax), "DynDampMax", $"{AI.DynamicDampingMax:0.0}");
-                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.dynamicSteerDampingFactor, nameof(AI.dynamicSteerDampingFactor), "DynDampMult", $"{AI.dynamicSteerDampingFactor:0.0}");
-                                    }
-                                    if (AI.threeAxisSteerDamping)
-                                    {
-                                        // Pitch
-                                        if (AI.dynamicSteerDamping)
+                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.steerMult, nameof(AI.steerMult), "SteerPower", $"{AI.steerMult:0.0}", splitContext: true);
+                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.steerKiAdjust, nameof(AI.steerKiAdjust), "SteerKi", $"{AI.steerKiAdjust:0.00}", splitContext: true);
+                                        if (!AI.threeAxisSteerDamping && !AI.dynamicSteerDamping)
                                         {
-                                            if (AI.dynamicDampingPitch != (AI.dynamicDampingPitch = GUI.Toggle(ToggleButtonRect(pidLines, contentWidth), AI.dynamicDampingPitch, StringUtils.Localize("#LOC_BDArmory_AI_DynamicDampingPitch"), AI.dynamicDampingPitch ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button)))
-                                            { AI.OnDampingTogglesChanged(); }
-                                            pidLines += 1.25f;
+                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.steerDamping, nameof(AI.steerDamping), "SteerDamping", $"{AI.steerDamping:0.00}", splitContext: true);
                                         }
-                                        if (AI.dynamicSteerDamping && AI.dynamicDampingPitch)
+                                        if (AI.threeAxisPID != (AI.threeAxisPID = GUI.Toggle(ToggleButtonRects(pidLines, 0, 3, contentWidth), AI.threeAxisPID, StringUtils.Localize("#LOC_BDArmory_AI_3AxisPID"), AI.threeAxisPID ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button)))
+                                        { AI.OnPIDTogglesChanged(); }
+                                        if (AI.threeAxisSteerDamping != (AI.threeAxisSteerDamping = GUI.Toggle(ToggleButtonRects(pidLines, 1, 3, contentWidth), AI.threeAxisSteerDamping, StringUtils.Localize("#LOC_BDArmory_AI_3AxisSteerDamping"), AI.threeAxisSteerDamping ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button)))
+                                        { AI.OnPIDTogglesChanged(); }
+                                        if (AI.dynamicSteerDamping != (AI.dynamicSteerDamping = GUI.Toggle(ToggleButtonRects(pidLines, 2, 3, contentWidth), AI.dynamicSteerDamping, StringUtils.Localize("#LOC_BDArmory_AI_DynamicDamping"), AI.dynamicSteerDamping ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button)))
+                                        { AI.OnPIDTogglesChanged(); }
+                                        pidLines += 1.25f;
+                                        if (!AI.threeAxisSteerDamping && AI.dynamicSteerDamping)
                                         {
-                                            GUI.Label(SettinglabelRect(pidLines++), StringUtils.Localize("#LOC_BDArmory_AI_DynamicDampingPitch") + $": {AI.dynSteerDampingPitchValue}", Label);
-                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingPitchMin, nameof(AI.DynamicDampingPitchMin), "DynDampMin", $"{AI.DynamicDampingPitchMin:0.0}");
-                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingPitchMax, nameof(AI.DynamicDampingPitchMax), "DynDampMax", $"{AI.DynamicDampingPitchMax:0.0}");
-                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.dynamicSteerDampingPitchFactor, nameof(AI.dynamicSteerDampingPitchFactor), "DynDampMult", $"{AI.dynamicSteerDampingPitchFactor:0.0}");
+                                            GUI.Label(SettinglabelRect(pidLines++), StringUtils.Localize("#LOC_BDArmory_AI_DynamicDamping") + $": {AI.dynSteerDampingValue}", Label);
+                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingMin, nameof(AI.DynamicDampingMin), "DynDampMin", $"{AI.DynamicDampingMin:0.0}");
+                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingMax, nameof(AI.DynamicDampingMax), "DynDampMax", $"{AI.DynamicDampingMax:0.0}");
+                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.dynamicSteerDampingFactor, nameof(AI.dynamicSteerDampingFactor), "DynDampMult", $"{AI.dynamicSteerDampingFactor:0.0}");
                                         }
-                                        else
+                                        if (AI.threeAxisSteerDamping)
                                         {
-                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.steerDampingPitch, nameof(AI.steerDampingPitch), "SteerDampingPitch", $"{AI.steerDampingPitch:0.00}", splitContext: true);
-                                        }
-                                        // Yaw
-                                        if (AI.dynamicSteerDamping)
-                                        {
-                                            if (AI.dynamicDampingYaw != (AI.dynamicDampingYaw = GUI.Toggle(ToggleButtonRect(pidLines, contentWidth), AI.dynamicDampingYaw, StringUtils.Localize("#LOC_BDArmory_AI_DynamicDampingYaw"), AI.dynamicDampingYaw ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button)))
-                                            { AI.OnDampingTogglesChanged(); }
-                                            pidLines += 1.25f;
-                                        }
-                                        if (AI.dynamicSteerDamping && AI.dynamicDampingYaw)
-                                        {
-                                            GUI.Label(SettinglabelRect(pidLines++), StringUtils.Localize("#LOC_BDArmory_AI_DynamicDampingYaw") + $": {AI.dynSteerDampingYawValue}", Label);
-                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingYawMin, nameof(AI.DynamicDampingYawMin), "DynDampMin", $"{AI.DynamicDampingYawMin:0.0}");
-                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingYawMax, nameof(AI.DynamicDampingYawMax), "DynDampMax", $"{AI.DynamicDampingYawMax:0.0}");
-                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.dynamicSteerDampingYawFactor, nameof(AI.dynamicSteerDampingYawFactor), "DynDampMult", $"{AI.dynamicSteerDampingYawFactor:0.0}");
-                                        }
-                                        else
-                                        {
-                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.steerDampingYaw, nameof(AI.steerDampingYaw), "SteerDampingYaw", $"{AI.steerDampingYaw:0.00}", splitContext: true);
-                                        }
-                                        // Roll
-                                        if (AI.dynamicSteerDamping)
-                                        {
-                                            if (AI.dynamicDampingRoll != (AI.dynamicDampingRoll = GUI.Toggle(ToggleButtonRect(pidLines, contentWidth), AI.dynamicDampingRoll, StringUtils.Localize("#LOC_BDArmory_AI_DynamicDampingRoll"), AI.dynamicDampingRoll ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button)))
-                                            { AI.OnDampingTogglesChanged(); }
-                                            pidLines += 1.25f;
-                                        }
-                                        if (AI.dynamicSteerDamping && AI.dynamicDampingRoll)
-                                        {
-                                            GUI.Label(SettinglabelRect(pidLines++), StringUtils.Localize("#LOC_BDArmory_AI_DynamicDampingRoll") + $": {AI.dynSteerDampingRollValue}", Label);
-                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingRollMin, nameof(AI.DynamicDampingRollMin), "DynDampMin", $"{AI.DynamicDampingRollMin:0.0}");
-                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingRollMax, nameof(AI.DynamicDampingRollMax), "DynDampMax", $"{AI.DynamicDampingRollMax:0.0}");
-                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.dynamicSteerDampingRollFactor, nameof(AI.dynamicSteerDampingRollFactor), "DynDampMult", $"{AI.dynamicSteerDampingRollFactor:0.0}");
-                                        }
-                                        else
-                                        {
-                                            pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.steerDampingRoll, nameof(AI.steerDampingRoll), "SteerDampingRoll", $"{AI.steerDampingRoll:0.00}", splitContext: true);
+                                            // Pitch
+                                            if (AI.dynamicSteerDamping)
+                                            {
+                                                if (AI.dynamicDampingPitch != (AI.dynamicDampingPitch = GUI.Toggle(ToggleButtonRect(pidLines, contentWidth), AI.dynamicDampingPitch, StringUtils.Localize("#LOC_BDArmory_AI_DynamicDampingPitch"), AI.dynamicDampingPitch ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button)))
+                                                { AI.OnPIDTogglesChanged(); }
+                                                pidLines += 1.25f;
+                                            }
+                                            if (AI.dynamicSteerDamping && AI.dynamicDampingPitch)
+                                            {
+                                                GUI.Label(SettinglabelRect(pidLines++), StringUtils.Localize("#LOC_BDArmory_AI_DynamicDampingPitch") + $": {AI.dynSteerDampingPitchValue}", Label);
+                                                pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingPitchMin, nameof(AI.DynamicDampingPitchMin), "DynDampMin", $"{AI.DynamicDampingPitchMin:0.0}");
+                                                pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingPitchMax, nameof(AI.DynamicDampingPitchMax), "DynDampMax", $"{AI.DynamicDampingPitchMax:0.0}");
+                                                pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.dynamicSteerDampingPitchFactor, nameof(AI.dynamicSteerDampingPitchFactor), "DynDampMult", $"{AI.dynamicSteerDampingPitchFactor:0.0}");
+                                            }
+                                            else
+                                            {
+                                                pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.steerDampingPitch, nameof(AI.steerDampingPitch), "SteerDampingPitch", $"{AI.steerDampingPitch:0.00}", splitContext: true);
+                                            }
+                                            // Yaw
+                                            if (AI.dynamicSteerDamping)
+                                            {
+                                                if (AI.dynamicDampingYaw != (AI.dynamicDampingYaw = GUI.Toggle(ToggleButtonRect(pidLines, contentWidth), AI.dynamicDampingYaw, StringUtils.Localize("#LOC_BDArmory_AI_DynamicDampingYaw"), AI.dynamicDampingYaw ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button)))
+                                                { AI.OnPIDTogglesChanged(); }
+                                                pidLines += 1.25f;
+                                            }
+                                            if (AI.dynamicSteerDamping && AI.dynamicDampingYaw)
+                                            {
+                                                GUI.Label(SettinglabelRect(pidLines++), StringUtils.Localize("#LOC_BDArmory_AI_DynamicDampingYaw") + $": {AI.dynSteerDampingYawValue}", Label);
+                                                pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingYawMin, nameof(AI.DynamicDampingYawMin), "DynDampMin", $"{AI.DynamicDampingYawMin:0.0}");
+                                                pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingYawMax, nameof(AI.DynamicDampingYawMax), "DynDampMax", $"{AI.DynamicDampingYawMax:0.0}");
+                                                pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.dynamicSteerDampingYawFactor, nameof(AI.dynamicSteerDampingYawFactor), "DynDampMult", $"{AI.dynamicSteerDampingYawFactor:0.0}");
+                                            }
+                                            else
+                                            {
+                                                pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.steerDampingYaw, nameof(AI.steerDampingYaw), "SteerDampingYaw", $"{AI.steerDampingYaw:0.00}", splitContext: true);
+                                            }
+                                            // Roll
+                                            if (AI.dynamicSteerDamping)
+                                            {
+                                                if (AI.dynamicDampingRoll != (AI.dynamicDampingRoll = GUI.Toggle(ToggleButtonRect(pidLines, contentWidth), AI.dynamicDampingRoll, StringUtils.Localize("#LOC_BDArmory_AI_DynamicDampingRoll"), AI.dynamicDampingRoll ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button)))
+                                                { AI.OnPIDTogglesChanged(); }
+                                                pidLines += 1.25f;
+                                            }
+                                            if (AI.dynamicSteerDamping && AI.dynamicDampingRoll)
+                                            {
+                                                GUI.Label(SettinglabelRect(pidLines++), StringUtils.Localize("#LOC_BDArmory_AI_DynamicDampingRoll") + $": {AI.dynSteerDampingRollValue}", Label);
+                                                pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingRollMin, nameof(AI.DynamicDampingRollMin), "DynDampMin", $"{AI.DynamicDampingRollMin:0.0}");
+                                                pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.DynamicDampingRollMax, nameof(AI.DynamicDampingRollMax), "DynDampMax", $"{AI.DynamicDampingRollMax:0.0}");
+                                                pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.dynamicSteerDampingRollFactor, nameof(AI.dynamicSteerDampingRollFactor), "DynDampMult", $"{AI.dynamicSteerDampingRollFactor:0.0}");
+                                            }
+                                            else
+                                            {
+                                                pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.steerDampingRoll, nameof(AI.steerDampingRoll), "SteerDampingRoll", $"{AI.steerDampingRoll:0.00}", splitContext: true);
+                                            }
                                         }
                                     }
 
@@ -1088,13 +1166,22 @@ namespace BDArmory.UI
                                     if (AI.AutoTune) // Auto-tuning
                                     {
                                         pidLines += 0.25f;
-                                        GUI.Label(SettinglabelRect(pidLines++), StringUtils.Localize("#LOC_BDArmory_AI_PID_AutoTuning_Loss") + $": {AI.autoTuningLossLabel}", Label);
-                                        GUI.Label(SettinglabelRect(pidLines++), $"\tParams: {AI.autoTuningLossLabel2}", Label);
-                                        GUI.Label(SettinglabelRect(pidLines++), $"\tField: {AI.autoTuningLossLabel3}", Label);
+                                        if (HighLogic.LoadedSceneIsEditor)
+                                        {
+                                            if (!string.IsNullOrEmpty(AI.autoTuningLossLabel)) // Not auto-tuning, but have been previously => show a summary of the last results.
+                                                GUI.Label(new Rect(contentInnerMargin + labelWidth / 8, pidLines++ * entryHeight, labelWidth, entryHeight),
+                                                    StringUtils.Localize("#LOC_BDArmory_AI_PID_AutoTuning_Summary") + $":   {AI.autoTuningSummary}", Label);
+                                        }
+                                        else
+                                        {
+                                            GUI.Label(SettinglabelRect(pidLines++), StringUtils.Localize("#LOC_BDArmory_AI_PID_AutoTuning_Loss") + $": {AI.autoTuningLossLabel}", Label);
+                                            GUI.Label(SettinglabelRect(pidLines++), $"\tParams: {AI.autoTuningLossLabel2}", Label);
+                                            GUI.Label(SettinglabelRect(pidLines++), $"\tField: {AI.autoTuningLossLabel3}", Label);
+                                        }
 
                                         pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.autoTuningOptionNumSamples, nameof(AI.autoTuningOptionNumSamples), "PIDAutoTuningNumSamples", $"{AI.autoTuningOptionNumSamples:0}", splitContext: true);
                                         pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.autoTuningOptionFastResponseRelevance, nameof(AI.autoTuningOptionFastResponseRelevance), "PIDAutoTuningFastResponseRelevance", $"{AI.autoTuningOptionFastResponseRelevance:G3}", splitContext: true);
-                                        pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.autoTuningOptionInitialLearningRate, nameof(AI.autoTuningOptionInitialLearningRate), "PIDAutoTuningInitialLearningRate", $"{AI.autoTuningOptionInitialLearningRate:G3}");
+                                        pidLines = ContentEntry(ContentType.FloatLogSlider, pidLines, contentWidth, ref AI.autoTuningOptionInitialLearningRate, nameof(AI.autoTuningOptionInitialLearningRate), "PIDAutoTuningInitialLearningRate", $"{AI.autoTuningOptionInitialLearningRate:G3}");
                                         pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.autoTuningOptionInitialRollRelevance, nameof(AI.autoTuningOptionInitialRollRelevance), "PIDAutoTuningInitialRollRelevance", $"{AI.autoTuningOptionInitialRollRelevance:G3}");
                                         pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.autoTuningAltitude, nameof(AI.autoTuningAltitude), "PIDAutoTuningAltitude", $"{AI.autoTuningAltitude:0}");
                                         pidLines = ContentEntry(ContentType.FloatSlider, pidLines, contentWidth, ref AI.autoTuningSpeed, nameof(AI.autoTuningSpeed), "PIDAutoTuningSpeed", $"{AI.autoTuningSpeed:0}");
@@ -1107,7 +1194,19 @@ namespace BDArmory.UI
                                         if (showSection[Section.FixedAutoTuneFields])
                                         {
                                             bool resetAutoTuning = false;
-                                            if (!AI.dynamicSteerDamping)
+                                            if (AI.threeAxisPID) // Full 3-Axis PID
+                                            {
+                                                if (AI.autoTuningOptionFixedPp != (AI.autoTuningOptionFixedPp = GUI.Toggle(ToggleButtonRects(pidLines, 0, 9, contentWidth), AI.autoTuningOptionFixedPp, StringUtils.Localize("#LOC_BDArmory_AIWindow_PIDAutoTuningFixed_Pp"), AI.autoTuningOptionFixedPp ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button))) resetAutoTuning = true;
+                                                if (AI.autoTuningOptionFixedIp != (AI.autoTuningOptionFixedIp = GUI.Toggle(ToggleButtonRects(pidLines, 1, 9, contentWidth), AI.autoTuningOptionFixedIp, StringUtils.Localize("#LOC_BDArmory_AIWindow_PIDAutoTuningFixed_Ip"), AI.autoTuningOptionFixedIp ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button))) resetAutoTuning = true;
+                                                if (AI.autoTuningOptionFixedDp != (AI.autoTuningOptionFixedDp = GUI.Toggle(ToggleButtonRects(pidLines, 2, 9, contentWidth), AI.autoTuningOptionFixedDp, StringUtils.Localize("#LOC_BDArmory_AIWindow_PIDAutoTuningFixed_Dp"), AI.autoTuningOptionFixedDp ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button))) resetAutoTuning = true;
+                                                if (AI.autoTuningOptionFixedPy != (AI.autoTuningOptionFixedPy = GUI.Toggle(ToggleButtonRects(pidLines, 3, 9, contentWidth), AI.autoTuningOptionFixedPy, StringUtils.Localize("#LOC_BDArmory_AIWindow_PIDAutoTuningFixed_Py"), AI.autoTuningOptionFixedPy ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button))) resetAutoTuning = true;
+                                                if (AI.autoTuningOptionFixedIy != (AI.autoTuningOptionFixedIy = GUI.Toggle(ToggleButtonRects(pidLines, 4, 9, contentWidth), AI.autoTuningOptionFixedIy, StringUtils.Localize("#LOC_BDArmory_AIWindow_PIDAutoTuningFixed_Iy"), AI.autoTuningOptionFixedIy ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button))) resetAutoTuning = true;
+                                                if (AI.autoTuningOptionFixedDy != (AI.autoTuningOptionFixedDy = GUI.Toggle(ToggleButtonRects(pidLines, 5, 9, contentWidth), AI.autoTuningOptionFixedDy, StringUtils.Localize("#LOC_BDArmory_AIWindow_PIDAutoTuningFixed_Dy"), AI.autoTuningOptionFixedDy ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button))) resetAutoTuning = true;
+                                                if (AI.autoTuningOptionFixedPr != (AI.autoTuningOptionFixedPr = GUI.Toggle(ToggleButtonRects(pidLines, 6, 9, contentWidth), AI.autoTuningOptionFixedPr, StringUtils.Localize("#LOC_BDArmory_AIWindow_PIDAutoTuningFixed_Pr"), AI.autoTuningOptionFixedPr ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button))) resetAutoTuning = true;
+                                                if (AI.autoTuningOptionFixedIr != (AI.autoTuningOptionFixedIr = GUI.Toggle(ToggleButtonRects(pidLines, 7, 9, contentWidth), AI.autoTuningOptionFixedIr, StringUtils.Localize("#LOC_BDArmory_AIWindow_PIDAutoTuningFixed_Ir"), AI.autoTuningOptionFixedIr ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button))) resetAutoTuning = true;
+                                                if (AI.autoTuningOptionFixedDr != (AI.autoTuningOptionFixedDr = GUI.Toggle(ToggleButtonRects(pidLines, 8, 9, contentWidth), AI.autoTuningOptionFixedDr, StringUtils.Localize("#LOC_BDArmory_AIWindow_PIDAutoTuningFixed_Dr"), AI.autoTuningOptionFixedDr ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button))) resetAutoTuning = true;
+                                            }
+                                            else if (!AI.dynamicSteerDamping)
                                             {
                                                 if (!AI.threeAxisSteerDamping) // Normal PID
                                                 {
@@ -1178,8 +1277,8 @@ namespace BDArmory.UI
                                     }
                                     else if (!string.IsNullOrEmpty(AI.autoTuningLossLabel)) // Not auto-tuning, but have been previously => show a summary of the last results.
                                     {
-                                        GUI.Label(new Rect(contentInnerMargin + labelWidth / 6, pidLines * entryHeight, labelWidth, entryHeight),
-                                            StringUtils.Localize("#LOC_BDArmory_AI_PID_AutoTuning_Summary") + $":   Loss: {AI.autoTuningLossLabel}, {AI.autoTuningLossLabel2}", Label);
+                                        GUI.Label(new Rect(contentInnerMargin + labelWidth / 8, pidLines * entryHeight, labelWidth, entryHeight),
+                                            StringUtils.Localize("#LOC_BDArmory_AI_PID_AutoTuning_Summary") + $":   {AI.autoTuningSummary}", Label);
                                         pidLines += 1.25f;
                                     }
                                     #endregion
@@ -1323,6 +1422,7 @@ StringUtils.Localize("#LOC_BDArmory_AIWindow_DiveBomb"), AI.divebombing ? BDArmo
                                     evadeLines = ContentEntry(ContentType.FloatSlider, evadeLines, contentWidth, ref AI.vesselCollisionAvoidanceLookAheadPeriod, nameof(AI.vesselCollisionAvoidanceLookAheadPeriod), "CollisionAvoidanceLookAheadPeriod", $"{AI.vesselCollisionAvoidanceLookAheadPeriod:0.0}s");
                                     evadeLines = ContentEntry(ContentType.FloatSlider, evadeLines, contentWidth, ref AI.vesselCollisionAvoidanceStrength, nameof(AI.vesselCollisionAvoidanceStrength), "CollisionAvoidanceStrength", $"{AI.vesselCollisionAvoidanceStrength:0.0} ({AI.vesselCollisionAvoidanceStrength / Time.fixedDeltaTime:0}°/s)");
                                     evadeLines = ContentEntry(ContentType.FloatSlider, evadeLines, contentWidth, ref AI.vesselStandoffDistance, nameof(AI.vesselStandoffDistance), "StandoffDistance", $"{AI.vesselStandoffDistance:0}m");
+                                    evadeLines = ContentEntry(ContentType.SemiLogSlider, evadeLines, contentWidth, ref AI.AvoidMass, nameof(AI.AvoidMass), "MinObstacleMass", AI.AvoidMass < 10 ? $"{AI.AvoidMass:0.0}t" : $"{AI.AvoidMass:0}t");
                                     #endregion
 
                                     #region Extending
@@ -1550,22 +1650,23 @@ StringUtils.Localize("#LOC_BDArmory_AIWindow_DiveBomb"), AI.divebombing ? BDArmo
                             }
                         }
                         break;
-                    case ActiveAIType.SurfaceAI:
+                    case AIType.SurfaceAI:
                         {
                             var AI = ActiveAI as BDModuleSurfaceAI;
-                            if (AI == null) { Debug.LogError($"[BDArmory.BDArmoryAIGUI]: AI module mismatch!"); activeAIType = ActiveAIType.None; break; }
+                            if (AI == null) { Debug.LogError($"[BDArmory.BDArmoryAIGUI]: AI module mismatch!"); activeAIType = AIType.None; break; }
 
+                            if (AISelectionComboBox == null || !AISelectionComboBox.IsOpen)
                             { // Section buttons
                                 float line = 1.5f;
                                 showSection[Section.PID] = GUI.Toggle(SubsectionRect(line), showSection[Section.PID], StringUtils.Localize("#LOC_BDArmory_AIWindow_PID"), showSection[Section.PID] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"PiD"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Speed] = GUI.Toggle(SubsectionRect(line), showSection[Section.Speed], StringUtils.Localize("#LOC_BDArmory_AIWindow_Speeds"), showSection[Section.Speed] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Speed"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Control] = GUI.Toggle(SubsectionRect(line), showSection[Section.Control], StringUtils.Localize("#LOC_BDArmory_AIWindow_Control"), showSection[Section.Control] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Control"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Combat] = GUI.Toggle(SubsectionRect(line), showSection[Section.Combat], StringUtils.Localize("#LOC_BDArmory_AIWindow_Combat"), showSection[Section.Combat] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Combat"
 
                                 line += 1.5f;
@@ -1575,12 +1676,14 @@ StringUtils.Localize("#LOC_BDArmory_AIWindow_DiveBomb"), AI.divebombing ? BDArmo
                                 {
                                     SetInputFields(activeAIType);
                                 }
+
+                                minHeight = contentTop + (line + 1f) * entryHeight + _windowMargin;
                             }
 
                             { // Controls panel
-                                scrollViewVectors[ActiveAIType.SurfaceAI] = GUI.BeginScrollView(
+                                scrollViewVectors[AIType.SurfaceAI] = GUI.BeginScrollView(
                                     new Rect(contentMargin + 100, contentTop + entryHeight * 1.5f, (ColumnWidth * 2) - 100 - contentMargin, WindowHeight - entryHeight * 1.5f - 2 * contentTop),
-                                    scrollViewVectors.GetValueOrDefault(ActiveAIType.SurfaceAI),
+                                    scrollViewVectors.GetValueOrDefault(AIType.SurfaceAI),
                                     new Rect(0, 0, ColumnWidth * 2 - 120 - contentMargin * 2, height + contentTop)
                                 );
 
@@ -1654,7 +1757,7 @@ StringUtils.Localize("#LOC_BDArmory_AIWindow_DiveBomb"), AI.divebombing ? BDArmo
                                         line = ContentEntry(ContentType.FloatSlider, line, contentWidth, ref AI.MaxDrift, nameof(AI.MaxDrift), "MaxDrift", $"{AI.MaxDrift:0}°");
                                         line = ContentEntry(ContentType.FloatSlider, line, contentWidth, ref AI.TargetPitch, nameof(AI.TargetPitch), "TargetPitch", $"{AI.TargetPitch:0.0}°");
                                         line = ContentEntry(ContentType.FloatSlider, line, contentWidth, ref AI.BankAngle, nameof(AI.BankAngle), "BankAngle", $"{AI.BankAngle:0}°");
-                                        line = ContentEntry(ContentType.FloatSlider, line, contentWidth, ref AI.AvoidMass, nameof(AI.AvoidMass), "MinObstacleMass", $"{AI.AvoidMass:0}t");
+                                        line = ContentEntry(ContentType.SemiLogSlider, line, contentWidth, ref AI.AvoidMass, nameof(AI.AvoidMass), "MinObstacleMass", AI.AvoidMass < 10 ? $"{AI.AvoidMass:0.0}t" : $"{AI.AvoidMass:0}t");
 
                                         if (broadsideDir != (broadsideDir = Mathf.RoundToInt(GUI.HorizontalSlider(SettingSliderRect(line, contentWidth), broadsideDir, 0, AI.orbitDirections.Length - 1))))
                                         {
@@ -1778,25 +1881,26 @@ StringUtils.Localize("#LOC_BDArmory_AIWindow_DiveBomb"), AI.divebombing ? BDArmo
                             }
                         }
                         break;
-                    case ActiveAIType.VTOLAI:
+                    case AIType.VTOLAI:
                         {
                             var AI = ActiveAI as BDModuleVTOLAI;
-                            if (AI == null) { Debug.LogError($"[BDArmory.BDArmoryAIGUI]: AI module mismatch!"); activeAIType = ActiveAIType.None; break; }
+                            if (AI == null) { Debug.LogError($"[BDArmory.BDArmoryAIGUI]: AI module mismatch!"); activeAIType = AIType.None; break; }
 
+                            if (AISelectionComboBox == null || !AISelectionComboBox.IsOpen)
                             { // Section buttons
                                 float line = 1.5f;
                                 showSection[Section.PID] = GUI.Toggle(SubsectionRect(line), showSection[Section.PID], StringUtils.Localize("#LOC_BDArmory_AIWindow_PID"), showSection[Section.PID] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"PiD"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Altitude] = GUI.Toggle(SubsectionRect(line), showSection[Section.Altitude], StringUtils.Localize("#LOC_BDArmory_AIWindow_Altitudes"), showSection[Section.Altitude] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Altitude"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Speed] = GUI.Toggle(SubsectionRect(line), showSection[Section.Speed], StringUtils.Localize("#LOC_BDArmory_AIWindow_Speeds"), showSection[Section.Speed] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Speed"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Control] = GUI.Toggle(SubsectionRect(line), showSection[Section.Control], StringUtils.Localize("#LOC_BDArmory_AIWindow_Control"), showSection[Section.Control] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Control"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Combat] = GUI.Toggle(SubsectionRect(line), showSection[Section.Combat], StringUtils.Localize("#LOC_BDArmory_AIWindow_Combat"), showSection[Section.Combat] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Combat"
 
                                 line += 1.5f;
@@ -1806,13 +1910,15 @@ StringUtils.Localize("#LOC_BDArmory_AIWindow_DiveBomb"), AI.divebombing ? BDArmo
                                 {
                                     SetInputFields(activeAIType);
                                 }
+
+                                minHeight = contentTop + (line + 1f) * entryHeight + _windowMargin;
                             }
 
                             if (showSection[Section.PID] || showSection[Section.Altitude] || showSection[Section.Speed] || showSection[Section.Control] || showSection[Section.Combat]) // Controls panel
                             {
-                                scrollViewVectors[ActiveAIType.VTOLAI] = GUI.BeginScrollView(
+                                scrollViewVectors[AIType.VTOLAI] = GUI.BeginScrollView(
                                     new Rect(contentMargin + 100, contentTop + entryHeight * 1.5f, (ColumnWidth * 2) - 100 - contentMargin, WindowHeight - entryHeight * 1.5f - 2 * contentTop),
-                                    scrollViewVectors.GetValueOrDefault(ActiveAIType.VTOLAI),
+                                    scrollViewVectors.GetValueOrDefault(AIType.VTOLAI),
                                     new Rect(0, 0, ColumnWidth * 2 - 120 - contentMargin * 2, height + contentTop)
                                 );
 
@@ -1897,7 +2003,8 @@ StringUtils.Localize("#LOC_BDArmory_AIWindow_DiveBomb"), AI.divebombing ? BDArmo
                                     {
                                         GUI.Label(ContextLabelRect(line++), StringUtils.Localize("#LOC_BDArmory_AIWindow_ManeuverRCS_Context"), contextLabel);
                                     }
-
+                                    line = ContentEntry(ContentType.SemiLogSlider, line, contentWidth, ref AI.AvoidMass, nameof(AI.AvoidMass), "MinObstacleMass", AI.AvoidMass < 10 ? $"{AI.AvoidMass:0.0}t" : $"{AI.AvoidMass:0}t");
+                                    line += 0.25f;
                                     GUI.EndGroup();
                                     sectionHeights[Section.Control] = Mathf.Lerp(sectionHeight, line, 0.15f);
                                     line += 0.1f;
@@ -1954,33 +2061,36 @@ StringUtils.Localize("#LOC_BDArmory_AIWindow_DiveBomb"), AI.divebombing ? BDArmo
                             }
                         }
                         break;
-                    case ActiveAIType.OrbitalAI:
+                    case AIType.OrbitalAI:
                         {
                             var AI = ActiveAI as BDModuleOrbitalAI;
-                            if (AI == null) { Debug.LogError($"[BDArmory.BDArmoryAIGUI]: AI module mismatch!"); activeAIType = ActiveAIType.None; break; }
+                            if (AI == null) { Debug.LogError($"[BDArmory.BDArmoryAIGUI]: AI module mismatch!"); activeAIType = AIType.None; break; }
 
+                            if (AISelectionComboBox == null || !AISelectionComboBox.IsOpen)
                             { // Section buttons
                                 float line = 1.5f;
                                 showSection[Section.PID] = GUI.Toggle(SubsectionRect(line), showSection[Section.PID], StringUtils.Localize("#LOC_BDArmory_AIWindow_PID"), showSection[Section.PID] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"PiD"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Combat] = GUI.Toggle(SubsectionRect(line), showSection[Section.Combat], StringUtils.Localize("#LOC_BDArmory_AIWindow_Combat"), showSection[Section.Combat] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Combat"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Speed] = GUI.Toggle(SubsectionRect(line), showSection[Section.Speed], StringUtils.Localize("#LOC_BDArmory_AIWindow_Speeds"), showSection[Section.Speed] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Speed"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Control] = GUI.Toggle(SubsectionRect(line), showSection[Section.Control], StringUtils.Localize("#LOC_BDArmory_AIWindow_Control"), showSection[Section.Control] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Control"
 
-                                line += 1.5f;
+                                line += 1.2f;
                                 showSection[Section.Evasion] = GUI.Toggle(SubsectionRect(line), showSection[Section.Evasion], StringUtils.Localize("#LOC_BDArmory_AIWindow_EvadeExtend"), showSection[Section.Evasion] ? BDArmorySetup.BDGuiSkin.box : BDArmorySetup.BDGuiSkin.button);//"Evasion"
+
+                                minHeight = contentTop + (line + 1f) * entryHeight + _windowMargin;
                             }
 
                             if (showSection[Section.PID] || showSection[Section.Combat] || showSection[Section.Speed] || showSection[Section.Control] || showSection[Section.Evasion]) // Controls panel
                             {
-                                scrollViewVectors[ActiveAIType.OrbitalAI] = GUI.BeginScrollView(
+                                scrollViewVectors[AIType.OrbitalAI] = GUI.BeginScrollView(
                                     new Rect(contentMargin + 100, contentTop + entryHeight * 1.5f, (ColumnWidth * 2) - 100 - contentMargin, WindowHeight - entryHeight * 1.5f - 2 * contentTop),
-                                    scrollViewVectors.GetValueOrDefault(ActiveAIType.OrbitalAI),
+                                    scrollViewVectors.GetValueOrDefault(AIType.OrbitalAI),
                                     new Rect(0, 0, ColumnWidth * 2 - 120 - contentMargin * 2, height + contentTop)
                                 );
 
@@ -2237,20 +2347,39 @@ StringUtils.Localize("#LOC_BDArmory_AIWindow_DiveBomb"), AI.divebombing ? BDArmo
                 }
             }
             WindowWidth = Mathf.Lerp(WindowWidth, windowColumns * ColumnWidth, 0.15f);
+            if (minHeight == 0 && AISelectionComboBox != null) minHeight = 2 * _windowMargin + _buttonSize + AISelectionComboBox.Height;
+            WindowHeight = Mathf.Max(WindowHeight, minHeight);
 
             #region Resizing
             var resizeRect = new Rect(WindowWidth - 16, WindowHeight - 16, 16, 16);
             GUI.DrawTexture(resizeRect, GUIUtils.resizeTexture, ScaleMode.StretchToFill, true);
             if (Event.current.type == EventType.MouseDown && resizeRect.Contains(Event.current.mousePosition))
             {
-                resizingWindow = true;
+                if (Event.current.button == 1)
+                {
+                    resizingWindow = false;
+                    autoResizingWindow = true;
+                }
+                else
+                {
+                    resizingWindow = true;
+                    autoResizingWindow = false;
+                }
             }
 
-            if (Event.current.type == EventType.Repaint && resizingWindow)
+            if (Event.current.type == EventType.Repaint)
             {
-                WindowHeight += Mouse.delta.y / BDArmorySettings.UI_SCALE_ACTUAL;
-                WindowHeight = Mathf.Max(WindowHeight, 305);
-                if (BDArmorySettings.DEBUG_OTHER) GUI.Label(new Rect(WindowWidth / 2, WindowHeight - 26, WindowWidth / 2 - 26, 26), $"Resizing: {Mathf.Round(WindowHeight * BDArmorySettings.UI_SCALE_ACTUAL)}", Label);
+                if (resizingWindow)
+                {
+                    WindowHeight += Mouse.delta.y / BDArmorySettings.UI_SCALE_ACTUAL;
+                    WindowHeight = Mathf.Max(WindowHeight, minHeight);
+                    if (BDArmorySettings.DEBUG_OTHER) GUI.Label(new Rect(WindowWidth / 2, WindowHeight - 26, WindowWidth / 2 - 26, 26), $"Resizing: {Mathf.Round(WindowHeight * BDArmorySettings.UI_SCALE_ACTUAL)}", Label);
+                }
+                else if (autoResizingWindow)
+                {
+                    WindowHeight = Mathf.Clamp((_windowMargin + _buttonSize) * 2 + contentHeight + 1, minHeight, (Screen.height - BDArmorySetup.WindowRectAI.yMin) / BDArmorySettings.UI_SCALE_ACTUAL);
+                    if (BDArmorySetup.WindowRectAI.height > WindowHeight) BDArmorySetup.WindowRectAI.height = WindowHeight; // Avoid sticking to bottom of screen during RepositionWindow.
+                }
             }
             #endregion
 

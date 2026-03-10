@@ -89,7 +89,6 @@ namespace BDArmory.Utils
 
             return true;
         }
-
         public static float[] ParseToFloatArray(string floatString)
         {
             string[] floatStrings = floatString.Split(new char[] { ',' });
@@ -181,8 +180,10 @@ namespace BDArmory.Utils
     /// Custom yield instruction that allows waiting for a number of seconds based on the FixedUpdate cycle instead of the Update cycle.
     /// Based on http://answers.unity.com/comments/1910230/view.html
     /// 
-    /// Note: All Unity yield instructions other than WaitForFixedUpdate wait until the next Update cycle to check their conditions, including "yield return null".
-    ///       For any yielding that is physics related, use WaitForFixedUpdate (use a single instance and yield it multiple times) or one of the classes below.
+    /// Notes:
+    ///  - All Unity yield instructions other than WaitForFixedUpdate wait until the next Update cycle to check their conditions, including "yield return null".
+    ///    For any yielding that is physics related, use WaitForFixedUpdate (use a single instance and yield it multiple times) or one of the classes below.
+    ///  - These "wait" enumerators always wait at least one cycle. If immediately continuing is desired, use a manual WaitForFixedUpdate loop.
     /// </summary>
     public class WaitForSecondsFixed : IEnumerator
     {
@@ -247,5 +248,17 @@ namespace BDArmory.Utils
     public struct StringList
     {
         public List<string> ls;
+    }
+
+    /// <summary>
+    /// Comparer for raycast hit sorting.
+    /// </summary>
+    public class RaycastHitComparer : IComparer<RaycastHit>
+    {
+        int IComparer<RaycastHit>.Compare(RaycastHit left, RaycastHit right)
+        {
+            return left.distance.CompareTo(right.distance);
+        }
+        public static RaycastHitComparer raycastHitComparer = new RaycastHitComparer();
     }
 }

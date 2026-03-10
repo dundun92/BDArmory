@@ -15,10 +15,10 @@ namespace BDArmory.Weapons.Missiles
 {
     public class ModuleMissileRearm : PartModule, IPartMassModifier, IPartCostModifier
     {
-        public float GetModuleMass(float baseMass, ModifierStagingSituation situation) => Mathf.Max((isMultiLauncher ? ammoCount : ammoCount - 1), 0) * missileMass;
+        public float GetModuleMass(float baseMass, ModifierStagingSituation situation) => Mathf.Max((isMultiLauncher ? (int)railAmmo : (int)railAmmo - 1), 0) * missileMass;
 
         public ModifierChangeWhen GetModuleMassChangeWhen() => ModifierChangeWhen.FIXED;
-        public float GetModuleCost(float baseCost, ModifierStagingSituation situation) => Mathf.Max((isMultiLauncher ? ammoCount : ammoCount - 1), 0) * missileCost;
+        public float GetModuleCost(float baseCost, ModifierStagingSituation situation) => Mathf.Max((isMultiLauncher ? (int)railAmmo : (int)railAmmo - 1), 0) * missileCost;
         public ModifierChangeWhen GetModuleCostChangeWhen() => ModifierChangeWhen.FIXED;
 
         private float missileMass = 0;
@@ -26,13 +26,13 @@ namespace BDArmory.Weapons.Missiles
 
         public bool isMultiLauncher = false;
 
-        [KSPField(isPersistant = true, guiActive = false, guiActiveEditor = true, guiName = "#LOC_BDArmory_OrdinanceAvailable"),//Ordinance Available
+        [KSPField(isPersistant = true, guiActive = false, guiActiveEditor = true, guiName = "#LOC_BDArmory_OrdnanceAvailable"),//Ordnance Available
 UI_FloatRange(minValue = 1f, maxValue = 4, stepIncrement = 1f, scene = UI_Scene.Editor)]
         public float railAmmo = 1; //munitions included with/loaded in the launcher (VLS/CLS pods, etc)
         public int magazineAmmo = 0;
         public int ammoCount => magazineAmmo + (int)railAmmo;
 
-        [KSPField(guiActive = true, guiActiveEditor = false, guiName = "#LOC_BDArmory_OrdinanceAvailable"),//Ordinance Available
+        [KSPField(guiActive = true, guiActiveEditor = false, guiName = "#LOC_BDArmory_OrdnanceAvailable"),//Ordnance Available
 UI_ProgressBar(affectSymCounterparts = UI_Scene.None, controlEnabled = false, scene = UI_Scene.Flight, maxValue = 100, minValue = 0, requireFullControl = false)]
         public float ammoRemaining = 1;
 
@@ -79,9 +79,9 @@ UI_ProgressBar(affectSymCounterparts = UI_Scene.None, controlEnabled = false, sc
             return false;
         }
 
-        public void loadOrdinance(int tubesToReload)
+        public void loadOrdnance(int tubesToReload)
         {
-            if (BDArmorySettings.DEBUG_MISSILES) Debug.Log($"[BDArmory.ModuleMissileRearm] reloading {tubesToReload} launchrails, {railAmmo} ordinance in launcher, queuing {tubesToReload - railAmmo} new munitions from magazine");
+            if (BDArmorySettings.DEBUG_MISSILES) Debug.Log($"[BDArmory.ModuleMissileRearm] reloading {tubesToReload} launchrails, {railAmmo} ordnance in launcher, queuing {tubesToReload - railAmmo} new munitions from magazine");
             if (linkedMagazines.Count > 0 && ammoCount > 0 && railAmmo < tubesToReload) //no/not enough ammo internal to launcher? grab some from magazine
             {
                 int neededReloads = (int)(tubesToReload - railAmmo);
@@ -125,10 +125,10 @@ UI_ProgressBar(affectSymCounterparts = UI_Scene.None, controlEnabled = false, sc
         {
             this.enabled = true;
             this.part.force_activate();
-            var MML = part.FindModuleImplementing<MultiMissileLauncher>();
-            if (MML == null || MML && MML.isClusterMissile) MissileName = part.name;
+            MultiMissileLauncher MML = part.FindModuleImplementing<MultiMissileLauncher>();
+            if (MML == null || MML && MML.isClusterMissile && !MML.isLaunchedClusterMissile) MissileName = part.name;
             if (HighLogic.LoadedSceneIsEditor || HighLogic.LoadedSceneIsFlight)
-                StartCoroutine(GetMissileValues());
+                StartCoroutine(GetMissileValues(MML));
             //GameEvents.onEditorShipModified.Add(ShipModified);
             if (maxAmmo < 0) maxAmmo = railAmmo;
             if (maxAmmo == 1) Fields["railAmmo"].guiActiveEditor = false;
@@ -147,8 +147,8 @@ UI_ProgressBar(affectSymCounterparts = UI_Scene.None, controlEnabled = false, sc
                         linkedMagazines.Add(mmm.Current);
                         magazineAmmo += (int)mmm.Current.ammoCount;
                     }
-                UI_ProgressBar ordinance = (UI_ProgressBar)Fields["ammoRemaining"].uiControlFlight;
-                ordinance.maxValue = railAmmo;
+                UI_ProgressBar ordnance = (UI_ProgressBar)Fields["ammoRemaining"].uiControlFlight;
+                ordnance.maxValue = railAmmo;
                 ammoRemaining = railAmmo;
             }
         }
@@ -157,7 +157,7 @@ UI_ProgressBar(affectSymCounterparts = UI_Scene.None, controlEnabled = false, sc
         {
             StartCoroutine(GetMissileValues());
         }
-        IEnumerator GetMissileValues()
+        IEnumerator GetMissileValues(MultiMissileLauncher MML = null)
         {
             yield return new WaitForFixedUpdate();
             MissileLauncher ml = part.FindModuleImplementing<MissileLauncher>();
@@ -168,13 +168,18 @@ UI_ProgressBar(affectSymCounterparts = UI_Scene.None, controlEnabled = false, sc
                     if (parts.Current.partConfig == null || parts.Current.partPrefab == null)
                         continue;
                     if (parts.Current.partPrefab.partInfo.name != MissileName) continue;
+                    if (parts.Current.partPrefab.FindModuleImplementing<MissileLauncher>() == null)
+                    {
+                        Debug.LogError($"[BDArmory.ModuleMissileRearm] ERROR: Found part with sharing the name {MissileName} which does not contain a MissileLauncher module!");
+                        continue;
+                    }
                     missilePart = parts.Current;
                     if (BDArmorySettings.DEBUG_MISSILES) Debug.Log($"[BDArmory.ModuleMissileRearm]: found {missilePart.partPrefab.partInfo.name}");
                     break;
                 }
             if (missilePart == null)
             {
-                Debug.LogWarning($"[BDArmory.ModuleMissileRearm]: Failed to find missile part on {part.partInfo.name}");
+                Debug.LogWarning($"[BDArmory.ModuleMissileRearm]: Failed to find missile part ({MissileName}) on {part.partInfo.name}");
                 missileCost = 0;
                 missileMass = 0;
                 yield break;
@@ -188,6 +193,33 @@ UI_ProgressBar(affectSymCounterparts = UI_Scene.None, controlEnabled = false, sc
             {
                 missileCost = 0;
                 missileMass = 0;
+            }
+
+            if (MML != null && !MML.isClusterMissile)
+            {
+                // Parse maxOffboresight here instead of in MML since we're getting the partPrefab here anyways
+                string maxOffboresightString = ConfigNodeUtils.FindPartModuleConfigNodeValue(missilePart.partPrefab.partInfo.partConfig, "MissileLauncher", "maxOffBoresight");
+                if (!string.IsNullOrEmpty(maxOffboresightString)) // Use the default value from the MM patch.
+                {
+                    try
+                    {
+                        float maxOffboresight = float.Parse(maxOffboresightString);
+                        MML.updateMaxOffBoresight(maxOffboresight);
+                        if (BDArmorySettings.DEBUG_MISSILES) Debug.Log("[BDArmory.ModuleMissileRearm]: setting maxOffBoresight of " + part + " to " + maxOffboresight);
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogError("[BDArmory.ModuleMissileRearm]: Failed to parse maxOffBoresight configNode: " + e.Message);
+                    }
+                }
+                UrlDir.UrlConfig partConfigTemp = (UrlDir.UrlConfig)GameDatabase.Instance.root.GetConfig(missilePart.partPrefab.partInfo.partUrl);
+                if (partConfigTemp == null)
+                {
+                    partConfigTemp = missilePart.partPrefab.partInfo.partUrlConfig;
+                    Debug.LogWarning($"[BDArmory.ModuleMissileRearm]: GetConfig from partURL {missilePart.partPrefab.partInfo.partUrl} failed! Using missilePart.partPrefab.partInfo.partUrlConfig. Potentially multiple parts in one file!");
+                }
+                    
+                MML.subMunitionPath = MML.GetMeshurl(partConfigTemp);
             }
         }
 
@@ -317,7 +349,7 @@ UI_ProgressBar(affectSymCounterparts = UI_Scene.None, controlEnabled = false, sc
             output.Append(Environment.NewLine);
             output.AppendLine($"Missile Rearming");
             output.AppendLine($"- Reload Time: {reloadTime} s");
-            output.AppendLine($"- Maximum Ordinance: {maxAmmo}");
+            output.AppendLine($"- Maximum Ordnance: {maxAmmo}");
             output.AppendLine($"- Ammo Mass/Cost: {AccountForAmmo}");
             return output.ToString();
         }

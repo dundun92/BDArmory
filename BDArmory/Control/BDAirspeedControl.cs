@@ -267,7 +267,7 @@ namespace BDArmory.Control
         {
             Vector3 geeVector = FlightGlobals.getGeeForceAtPosition(vessel.CoM);
             geeForce = geeVector.magnitude;
-            return geeForce * Mathf.Cos(Mathf.Deg2Rad * Vector3.Angle(-geeVector, vessel.velocityD)); // -g.v/|v| ???
+            return geeForce * Mathf.Cos(Mathf.Deg2Rad * VectorUtils.Angle(-geeVector, vessel.velocityD)); // -g.v/|v| ???
         }
 
         public float GetPossibleAccel()
@@ -280,6 +280,7 @@ namespace BDArmory.Control
     {
         public float targetSpeed;
         public float signedSrfSpeed;
+        public bool useBrakes = true;
         public Vessel vessel;
         public bool preventNegativeZeroPoint = false;
 
@@ -327,7 +328,7 @@ namespace BDArmory.Control
                 zeroPoint = (zeroPoint + lastThrottle * zeroMult) * (1 - zeroMult);
                 if (preventNegativeZeroPoint && zeroPoint < 0) zeroPoint = 0;
                 SetThrottle(s, lastThrottle);
-                vessel.ActionGroups.SetGroup(KSPActionGroup.Brakes, (targetSpeed * signedSrfSpeed < -5));
+                vessel.ActionGroups.SetGroup(KSPActionGroup.Brakes, useBrakes);
             }
         }
 
@@ -338,6 +339,7 @@ namespace BDArmory.Control
         /// <param name="value">The throttle value</param>
         public void SetThrottle(FlightCtrlState s, float value)
         {
+            s.mainThrottle = value;
             s.wheelThrottle = value;
             if (hasAxisGroupsModule)
             {
@@ -478,7 +480,7 @@ namespace BDArmory.Control
         }
         public void SetSecondaryThrottle(float value)
         {
-            using (var engines = VesselModuleRegistry.GetModuleEngines(vessel).GetEnumerator()) //allow VTOL AI to have standard horizontal engines for thrust, using engiens set to independent throttle so normal engines usable for altitude
+            using (var engines = VesselModuleRegistry.GetModuleEngines(vessel).GetEnumerator()) //allow VTOL AI to have standard horizontal engines for thrust, using engines set to independent throttle so normal engines usable for altitude
                 while (engines.MoveNext())
                 {
                     if (engines.Current == null) continue;
@@ -552,7 +554,7 @@ namespace BDArmory.Control
 
         void OrbitalControl(FlightCtrlState s)
         {
-            error = Vector3.Angle(vessel.ReferenceTransform.up, attitude);
+            error = VectorUtils.Angle(vessel.ReferenceTransform.up, attitude);
 
             if (!PIDActive)
                 UpdateSAS(s);
@@ -562,7 +564,7 @@ namespace BDArmory.Control
 
         private void UpdateThrottle(FlightCtrlState s)
         {
-            facingDesiredRotation = Vector3.Angle((useReverseThrust ? -1 : 1) * vessel.ReferenceTransform.up, thrustDirection) < alignmentToleranceforBurn;
+            facingDesiredRotation = VectorUtils.Angle((useReverseThrust ? -1 : 1) * vessel.ReferenceTransform.up, thrustDirection) < alignmentToleranceforBurn;
  
             throttleActual = facingDesiredRotation ? throttle : 0;
 

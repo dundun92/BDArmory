@@ -224,7 +224,7 @@ namespace BDArmory.UI
                         if (hp == null || hp.Ready) return null;
                         return hp;
                     }).Where(hp => hp != null).Select(hp => $"{hp.part.name}: {hp.Why}"));
-                Debug.LogWarning($"[BDArmory.BDAEditorArmorWindow]: Ship HP failed to settle within {countLimit} frames.{(string.IsNullOrEmpty(reason) ? "" : $" {reason}")}");
+                if (BDArmorySettings.DEBUG_ARMOR) Debug.LogWarning($"[BDArmory.BDAEditorArmorWindow]: Ship HP failed to settle within {countLimit} frames.{(string.IsNullOrEmpty(reason) ? "" : $" {reason}")}");
             }
             delayedRefreshVisualsInProgress = false;
 
@@ -275,6 +275,10 @@ namespace BDArmory.UI
         private void OnEditorPartPlacedEvent(Part data)
         {
             DoVesselLegalityChecks(true);
+            if (BDArmorySettings.RUNWAY_PROJECT && BDArmorySettings.RUNWAY_PROJECT_ROUND == 78)
+            {
+                data.sameVesselCollision = true;
+            }
         }
 
         private void OnDestroy()
@@ -508,11 +512,11 @@ namespace BDArmory.UI
                 line++;
                 GUI.Label(new Rect(10, line * lineHeight, 300, lineHeight), $"{StringUtils.Localize("#LOC_BDArmory_ArmorWingLoading")}:", style);
                 line++;
-                GUI.Label(new Rect(10, line * lineHeight, 300, lineHeight), $"   - {StringUtils.Localize("#autoLOC_6001895")}: {wingLoadingWet:0.0} ({WLRatioWet:F2} kg/m2)", style);
+                GUI.Label(new Rect(10, line * lineHeight, 300, lineHeight), $"   - {StringUtils.Localize("#autoLOC_6001895")}: {wingLoadingWet:0.00} ({WLRatioWet:F2} kg/m2)", style);
                 line++;
-                GUI.Label(new Rect(10, line * lineHeight, 300, lineHeight), $"   - {StringUtils.Localize("#autoLOC_6001896")}: {wingLoadingDry:0.0} ({WLRatioDry:F2} kg/m2)", style);
+                GUI.Label(new Rect(10, line * lineHeight, 300, lineHeight), $"   - {StringUtils.Localize("#autoLOC_6001896")}: {wingLoadingDry:0.00} ({WLRatioDry:F2} kg/m2)", style);
                 line++;
-                GUI.Label(new Rect(10, line * lineHeight, 300, lineHeight), $"{StringUtils.Localize("#LOC_BDArmory_ArmorLiftStacking")}: {totalLiftStackRatio:0%}", style);
+                GUI.Label(new Rect(10, line * lineHeight, 300, lineHeight), $"{StringUtils.Localize("#LOC_BDArmory_ArmorLiftStacking")}: {totalLiftStackRatio:0.0%}", style);
                 line++;
 #if DEBUG
                 line += 0.5f;
@@ -647,7 +651,7 @@ namespace BDArmory.UI
                         }
                         if (selectedArmor != "Mild Steel" && selectedArmor != "None")
                         {
-                            GUI.Label(new Rect(10, (line + armorLines + StatLines) * lineHeight, 300, lineHeight), $"{StringUtils.Localize("#LOC_BDArmory_EquivalentThickness")}: {relValue * Thickness} mm", style);
+                            GUI.Label(new Rect(10, (line + armorLines + StatLines) * lineHeight, 300, lineHeight), $"{StringUtils.Localize("#LOC_BDArmory_EquivalentThickness")}: {Thickness / relValue:G3} mm", style);
                             line++;
                         }
                     }

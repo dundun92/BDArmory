@@ -7,7 +7,7 @@ namespace BDArmory.Settings
 {
     public class BDArmorySettings
     {
-        public static string oldSettingsConfigURL = Path.Combine(KSPUtil.ApplicationRootPath, "GameData/BDArmory/settings.cfg"); // Migrate from the old settings file to the new one in PluginData so that we don't invalidate the ModuleManager cache.
+        public static string oldSettingsConfigURL = Path.GetFullPath(Path.Combine(KSPUtil.ApplicationRootPath, "GameData/BDArmory/settings.cfg")); // Migrate from the old settings file to the new one in PluginData so that we don't invalidate the ModuleManager cache.
         public static string settingsConfigURL = Path.GetFullPath(Path.Combine(KSPUtil.ApplicationRootPath, "GameData/BDArmory/PluginData/settings.cfg"));
         public static bool ready = false;
 
@@ -46,10 +46,11 @@ namespace BDArmory.Settings
         [BDAPersistentSettingsField] public static bool AI_TOOLBAR_BUTTON = true;                 // Show or hide the BDA AI toolbar button.
         [BDAPersistentSettingsField] public static bool VM_TOOLBAR_BUTTON = true;                 // Show or hide the BDA VM toolbar button.
         [BDAPersistentSettingsField] public static bool INFINITE_AMMO = false;              //infinite Bullets/rockets/laserpower
-        [BDAPersistentSettingsField] public static bool INFINITE_ORDINANCE = false;         //infinite missiles/bombs (on ordinance w/ Reload Module)
+        [BDAPersistentSettingsField] public static bool INFINITE_ORDINANCE = false;         //infinite missiles/bombs (on ordnance w/ Reload Module)
         [BDAPersistentSettingsField] public static bool LIMITED_ORDINANCE = false;         //MML ammo clamped to salvo size, no relaods
         [BDAPersistentSettingsField] public static bool INFINITE_FUEL = false;              //Infinite propellant
         [BDAPersistentSettingsField] public static bool INFINITE_EC = false;                          //Infinite electric charge
+        [BDAPersistentSettingsField] public static bool INFINITE_COUNTERMEASURES = false;         //infinite CMs
         [BDAPersistentSettingsField] public static bool PERFORMANCE_OPTIONS = true;
         [BDAPersistentSettingsField] public static bool BULLET_HITS = true;
         [BDAPersistentSettingsField] public static bool WATER_HIT_FX = true;
@@ -63,6 +64,7 @@ namespace BDArmory.Settings
         [BDAPersistentSettingsField] public static bool AIM_ASSIST_MODE = true;              // true = reticle follows bullet CPA position, false = reticle follows aiming position.
         [BDAPersistentSettingsField] public static bool DRAW_AIMERS = true;
         [BDAPersistentSettingsField] public static bool RESTORE_KAL = true;                  // Restore the Part, Module and AxisField references on the KAL to make it work.
+        [BDAPersistentSettingsField] public static bool DISABLE_GUARDMODE_ON_SPAWN = true;   // Disable guardMode on WMs when they're spawned.
 
         [BDAPersistentSettingsField] public static bool REMOTE_SHOOTING = false;
         [BDAPersistentSettingsField] public static bool BOMB_CLEARANCE_CHECK = false;
@@ -93,6 +95,7 @@ namespace BDArmory.Settings
         [BDAPersistentSettingsField] public static bool SHOW_CATEGORIES = true;
         [BDAPersistentSettingsField] public static bool IGNORE_TERRAIN_CHECK = false;
         [BDAPersistentSettingsField] public static bool CHECK_WATER_TERRAIN = false;
+        [BDAPersistentSettingsField] public static bool ALLOW_RETREAT_IF_ORBITING = true; // Allow retreating if under fire while orbiting.
         [BDAPersistentSettingsField] public static bool RADAR_NOTCHING = false;
         [BDAPersistentSettingsField] public static bool RADAR_ALLOW_SURFACE_WARFARE = true;
         [BDAPersistentSettingsField] public static float RADAR_NOTCHING_FACTOR = 1f;
@@ -195,6 +198,8 @@ namespace BDArmory.Settings
         [BDAPersistentSettingsField] public static float EXP_DMG_MOD_MISSILE = 6.75f;           // Missile explosion damage multiplier
         [BDAPersistentSettingsField] public static float EXP_DMG_MOD_ROCKET = 1f;               // Rocket explosion damage multiplier (FIXME needs tuning; Note: rockets used Ballistic mod before, but probably ought to be more like missiles)
         [BDAPersistentSettingsField] public static float EXP_DMG_MOD_BATTLE_DAMAGE = 1f;        // Battle damage explosion damage multiplier (FIXME needs tuning; Note: CASE-0 explosions used Missile mod, while CASE-1, CASE-2 and fuel explosions used Ballistic mod)
+        [BDAPersistentSettingsField] public static float EXP_DMG_MOD_HEAT = 1f;                 // HEAT warhead spall damage mult
+        [BDAPersistentSettingsField] public static float HEAT_SPALL_MAX_RED = 0.5f;              // Max amount of spall that can be reduced by a spall liner layer (since the shaped charge pens, there's gonna be an upper limit to this)
         [BDAPersistentSettingsField] public static float EXP_IMP_MOD = 0.25f;
         [BDAPersistentSettingsField] public static float BUILDING_DMG_MULTIPLIER = 1f;
         [BDAPersistentSettingsField] public static bool EXTRA_DAMAGE_SLIDERS = false;
@@ -203,6 +208,7 @@ namespace BDArmory.Settings
         [BDAPersistentSettingsField] public static float ZOMBIE_DMG_MULT = 0.1f;
         [BDAPersistentSettingsField] public static float ARMOR_MASS_MOD = 1f;                   //Armor mass multiplier
         [BDAPersistentSettingsField] public static bool KERBAL_ERA = true;
+        [BDAPersistentSettingsField] public static float HMDCost = 2000f;
         #endregion
 
         #region FX
@@ -249,6 +255,7 @@ namespace BDArmory.Settings
         [BDAPersistentSettingsField] public static float ASTEROID_RAIN_RADIUS = 3f; // Km.
         [BDAPersistentSettingsField] public static bool ASTEROID_RAIN_FOLLOWS_CENTROID = true;
         [BDAPersistentSettingsField] public static bool ASTEROID_RAIN_FOLLOWS_SPREAD = true;
+        [BDAPersistentSettingsField] public static float GUARD_MODE_TRIGGER_ALT = 3000; // m.
         [BDAPersistentSettingsField] public static bool MUTATOR_MODE = false;
         [BDAPersistentSettingsField] public static bool ZOMBIE_MODE = false;
         [BDAPersistentSettingsField] public static bool DISCO_MODE = false;
@@ -263,11 +270,13 @@ namespace BDArmory.Settings
         public static bool _PART_GLIMIT = false; // Part G-force limits.
         public static bool _KERB_GLIMIT = false; // Kerbal G-force limits.
         public static float _G_TOLERANCE = 1f;   // Adjust the GToleranceMult to set Max G endurance of all kerbs to a desired amount
+        [BDAPersistentSettingsField] public static float AIMING_VISUAL_MALUS = 0; // Malus to visual aiming with a mk1 eyeball.
         #endregion
 
         #region Battle Damage settings
         [BDAPersistentSettingsField] public static bool BATTLEDAMAGE_TOGGLE = false;    // Main battle damage toggle.
         [BDAPersistentSettingsField] public static float BD_DAMAGE_CHANCE = 5;          // Base chance per-hit to proc damage
+        [BDAPersistentSettingsField] public static float BD_DAMAGE_PENETRATION = 0.2f;  // Penetration factor required to proc damage
         [BDAPersistentSettingsField] public static bool BD_SUBSYSTEMS = true;           // Non-critical module damage?
         [BDAPersistentSettingsField] public static bool BD_TANKS = true;                // Fuel tanks, batteries can leak/burn
         [BDAPersistentSettingsField] public static float BD_TANK_LEAK_TIME = 20;        // Leak duration
@@ -349,6 +358,7 @@ namespace BDArmory.Settings
         [BDAPersistentSettingsField] public static bool VESSEL_SPAWN_START_COMPETITION_AUTOMATICALLY = false; // Automatically start a competition after spawning succeeds.
         [BDAPersistentSettingsField] public static bool VESSEL_SPAWN_INITIAL_VELOCITY = false;     // Set planes at their idle speed after dropping them at the start of a competition.
         [BDAPersistentSettingsField] public static bool VESSEL_SPAWN_CS_FOLLOWS_CENTROID = false;  // The continuous spawning spawn point follows the brawl centroid with bias back to the original spawn point.
+        [BDAPersistentSettingsField] public static int VESSEL_SPAWN_KERBAL_SUIT_TYPE = -1;
         #endregion
 
         #region Vessel Mover settings
@@ -368,6 +378,7 @@ namespace BDArmory.Settings
         [BDAPersistentSettingsField] public static bool SHOW_SCORE_WINDOW = false;
         [BDAPersistentSettingsField] public static bool SCORES_PERSIST_UI = false;
         [BDAPersistentSettingsField] public static int SCORES_FONT_SIZE = 12;
+        [BDAPersistentSettingsField] public static int VS_NPC_SCORE_MOD = 2;
         #endregion
 
         #region Waypoints
